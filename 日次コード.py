@@ -473,28 +473,30 @@ def run_ai_sniper(df_features):
 def main():
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 日次自動バッチ処理開始")
 
-
     os.makedirs(Config.DRIVE_DIR, exist_ok=True)
     
-    full_path_master = get_latest_file('kdreams_analysis_*_master.csv')
+    # 🌟 変更：ファイル名を「keirin_master.csv」に完全固定！
+    full_path_master = os.path.join(Config.DRIVE_DIR, 'keirin_master.csv')
     full_path_tomorrow = os.path.join(Config.DRIVE_DIR, Config.TOMORROW_FILE)
     
     start_dt = None
-    if full_path_master:
+    # 🌟 変更：ファイルが存在するかどうかで分岐
+    if os.path.exists(full_path_master):
         try:
             df_temp = pd.read_csv(full_path_master, usecols=['date'], low_memory=False)
             max_date = pd.to_datetime(df_temp['date'], errors='coerce').max()
             if pd.notna(max_date):
                 start_dt = max_date + timedelta(days=1)
                 print(f"📊 マスターCSV最新日付: {max_date.strftime('%Y-%m-%d')} ({os.path.basename(full_path_master)})")
-        except Exception as e: print(f"⚠️ マスター読込エラー: {e}")
+        except Exception as e:
+            print(f"⚠️ マスター読込エラー: {e}")
             
     if start_dt is None:
         start_dt = datetime.now() - timedelta(days=1)
-        print(f"⚠️ 最新日付が取得不可のため、{start_dt.strftime('%Y-%m-%d')}から開始します。")
+        print(f"⚠️ 最新日付が取得不可または新規作成のため、{start_dt.strftime('%Y-%m-%d')}から開始します。")
 
-    if not full_path_master:
-        full_path_master = os.path.join(Config.DRIVE_DIR, f"kdreams_analysis_{start_dt.strftime('%Y%m%d')}_master.csv")
+    # 🌟 削除：末尾にあった「日付付きの変なファイル名」を作る処理は、
+    # 完全に不要（常に keirin_master.csv に書き込むため）になったので削除しました！
 
     today_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     end_dt = today_dt
