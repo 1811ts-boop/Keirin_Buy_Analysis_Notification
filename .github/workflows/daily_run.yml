@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 pandas numpy tqdm joblib lightgbm google-api-python-client google-auth-httplib2 google-auth-oauthlib
+          pip install requests beautifulsoup4 pandas numpy tqdm joblib lightgbm scikit-learn google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
       - name: Download Data from Google Drive
         env:
