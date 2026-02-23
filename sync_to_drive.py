@@ -37,7 +37,18 @@ def sync_files_to_drive():
 
     for file_name in os.listdir(target_dir):
         if file_name.endswith('.csv') or file_name.endswith('.pkl'):
+            # バックアップは同期から除外
+            if 'backup' in file_name.lower(): continue
+            
             file_path = os.path.join(target_dir, file_name)
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024) # MB単位に変換
+            
+            # 🌟 追加：安全装置（マスターファイルが80MB以下なら異常とみなしてブロック）
+            if 'master' in file_name.lower() and file_size_mb < 80.0:
+                print(f"🚨 致命的エラー: {file_name} のサイズが異常です（{file_size_mb:.2f} MB）。")
+                print("🚨 データ破損の恐れがあるため、Googleドライブへの上書きを緊急停止しました！")
+                continue # アップロードをスキップして次のファイルへ
+            
             media = MediaFileUpload(file_path, resumable=True)
 
             if file_name in existing_files:
