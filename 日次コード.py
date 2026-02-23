@@ -29,14 +29,14 @@ warnings.filterwarnings('ignore')
 # ⚙️ 設定クラス (本番稼働用)
 # ==========================================
 class Config:
-    # 保存先をカレントディレクトリ（実行場所）に固定
     DRIVE_DIR = './KeirinData'
     TOMORROW_FILE = 'tomorrow_races.csv'
-    MAX_WORKERS = 1
+    MAX_WORKERS = 1 
     SLEEP_TIME = 1.0
     
-    # 🌟 セキュリティ対策：GitHubの秘密の金庫（Secrets）からトークンを読み込む
-    LINE_NOTIFY_TOKEN = os.environ.get('LINE_NOTIFY_TOKEN', 'YOUR_LINE_NOTIFY_TOKEN_HERE')
+    # 🌟 変更：Messaging API用の2つの変数を読み込む
+    LINE_CHANNEL_TOKEN = os.environ.get('LINE_CHANNEL_TOKEN', 'YOUR_TOKEN')
+    LINE_USER_ID = os.environ.get('LINE_USER_ID', 'YOUR_USER_ID')
 
 # ==========================================
 # フェーズ1：スクレイピング・コアロジック
@@ -279,12 +279,33 @@ def get_latest_file(pattern):
     return sorted(files)[-1]
 
 def send_line_notify(message):
-    if Config.LINE_NOTIFY_TOKEN == 'YOUR_LINE_NOTIFY_TOKEN_HERE':
-        print("\n[LINE送信テスト]\n" + message)
+    """🌟 変更：LINE Messaging APIを使ってプッシュメッセージを送信する"""
+    token = Config.LINE_CHANNEL_TOKEN
+    user_id = Config.LINE_USER_ID
+    
+    if token == 'YOUR_TOKEN' or user_id == 'YOUR_USER_ID':
+        print("LINEトークンまたはユーザーIDが設定されていないため、通知をスキップします。")
         return
-    url = "https://notify-api.line.me/api/notify"
-    headers = {"Authorization": f"Bearer {Config.LINE_NOTIFY_TOKEN}"}
-    requests.post(url, headers=headers, data={"message": message})
+        
+    url = 'https://api.line.me/v2/bot/message/push'
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {token}'
+    }
+    data = {
+        "to": user_id,
+        "messages": [
+            {
+                "type": "text",
+                "text": message
+            }
+        ]
+    }
+    
+    # APIへ送信
+    res = requests.post(url, headers=headers, json=data)
+    if res.status_code != 200:
+        print(f"❌ LINE送信エラー: [{res.status_code}] {res.text}")
 
 # ==========================================
 # フェーズ2：AI用特徴量エンジニアリング (架け橋ロジック)
