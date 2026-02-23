@@ -30,7 +30,7 @@ warnings.filterwarnings('ignore')
 # ==========================================
 class Config:
     DRIVE_DIR = './KeirinData'
-    TOMORROW_FILE = 'tomorrow_races.csv'
+    TOMORROW_FILE = 'today_races.csv'
     MAX_WORKERS = 1 
     SLEEP_TIME = 1.0
     
