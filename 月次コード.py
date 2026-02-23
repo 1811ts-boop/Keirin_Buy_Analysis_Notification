@@ -151,7 +151,7 @@ def run_monthly_training_pipeline():
         'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }
     
-    threshold_file = os.path.join(WORK_DIR, f'keirin_threshold_{current_ym}.pkl')
+    threshold_file = os.path.join(WORK_DIR, f'keirin_thresholds_{current_ym}.pkl')
     joblib.dump(thresholds, threshold_file)
     print(f"   ✅ 閾値ファイルを保存しました: {os.path.basename(threshold_file)}")
 
