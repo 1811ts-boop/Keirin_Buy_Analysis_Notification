@@ -123,7 +123,7 @@ class KDreamsAnalysisScraper:
             title_full = self.clean_text(soup.title.text)
             meta['race_title_full'] = title_full
             meta['place_name'] = title_full.split(' ')[0].replace('競輪', '')
-            match = re.search(r'/racedetail/(\d{2})(\d{8})(\d{2})', url)
+            match = re.search(r'/racedetail/(\d{2})(\d{8}).*?(\d{2})/?$', url)
             if match: meta['place_code'], _, meta['race_num'] = match.groups()
             else: meta['place_code'] = meta['race_num'] = "-"
             bank_len_str = BANK_MAP.get(meta['place_code'], '400')
