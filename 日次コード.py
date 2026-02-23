@@ -15,26 +15,25 @@ import itertools
 import joblib
 import warnings
 
-# 🌟 修正必須1対応済：Colabのタイムゾーンを日本時間(JST)に強制設定
+# ==========================================
+# 🌟 環境設定 (GitHub Actions 本番用)
+# ==========================================
 os.environ['TZ'] = 'Asia/Tokyo'
-time.tzset()
-
+try:
+    time.tzset()
+except:
+    pass
 warnings.filterwarnings('ignore')
 
-# 🌟Googleドライブのマウント処理
-# from google.colab import drive
-# drive.mount('/content/drive')
-
 # ==========================================
-# ⚙️ 設定クラス (本番稼働用)
+# ⚙️ 設定クラス (環境変数からLINE APIキーを取得)
 # ==========================================
 class Config:
-    DRIVE_DIR = './KeirinData'
+    DRIVE_DIR = './KeirinData' 
     TOMORROW_FILE = 'today_races.csv'
     MAX_WORKERS = 1 
     SLEEP_TIME = 1.0
     
-    # 🌟 変更：Messaging API用の2つの変数を読み込む
     LINE_CHANNEL_TOKEN = os.environ.get('LINE_CHANNEL_TOKEN', 'YOUR_TOKEN')
     LINE_USER_ID = os.environ.get('LINE_USER_ID', 'YOUR_USER_ID')
 
@@ -78,9 +77,8 @@ class KDreamsAnalysisScraper:
 
     def fetch_race_urls_daily(self, date_obj):
         date_str = date_obj.strftime('%Y/%m/%d')
-        url = f"{self.base_url}/kaisai/{date_str}/"
+        url = f"{self.base_url}/kaisai/{date_str}//"
         
-        # 【第1段階】 開催一覧ページから、本日の「出走表一覧」ページのURLを取得
         soup = None
         for _ in range(3):
             soup = self.get_soup(url)
@@ -89,7 +87,6 @@ class KDreamsAnalysisScraper:
         if not soup: return None
         
         racecard_urls = set()
-        # "active" クラスを持つタブ（本日開催分）の中にある出走表リンクを抽出
         for li in soup.find_all('li'):
             if 'active' in li.get('class', []):
                 for link in li.find_all('a', href=re.compile(r'/racecard/\d+')):
@@ -98,17 +95,14 @@ class KDreamsAnalysisScraper:
                         href = self.base_url + href
                     racecard_urls.add(href)
 
-        # 【第2段階】 各開催場の出走表一覧ページに潜入し、1R〜12RのURLを根こそぎ抽出
         all_race_urls = set()
         for rc_url in racecard_urls:
-            # URLから大会ID（14桁）を抽出し、過去日のレースが混入するのを完全に防ぐ
             match = re.search(r'/racecard/(\d+)/?', rc_url)
             if not match: continue
             base_id = match.group(1)
             
             rc_soup = self.get_soup(rc_url)
             if rc_soup:
-                # ページ内の全racedetailリンクを抽出（重複はsetで自動排除）
                 for link in rc_soup.find_all('a', href=re.compile(f'/racedetail/{base_id}')):
                     href = link.get('href').split('?')[0]
                     if not href.startswith("http"):
@@ -269,13 +263,21 @@ class KDreamsAnalysisScraper:
     def parse_one_race(self, url, date_str):
         soup_entry = self.get_soup(url)
         if not soup_entry: return None
+        
+        players = self._extract_players(soup_entry)
+        if not players: return None
+        max_car = max([int(k) for k in players.keys()])
+        if max_car > 7:
+            return None 
+
         meta = self._extract_race_info(soup_entry, url, date_str)
         if not meta: return None
-        players = self._extract_players(soup_entry)
         payouts, ranks = self._extract_results(url)
+        
         row = meta.copy()
         row.update(payouts)
         row['car_count'] = len(players)
+        
         for i in range(1, 8):
             prefix, car_key = f"c{i}", str(i)
             exists = car_key in players
@@ -303,46 +305,41 @@ def get_latest_file(pattern):
     if not files: return None
     return sorted(files)[-1]
 
+# ==========================================
+# 本番用：LINE通知送信関数
+# ==========================================
 def send_line_notify(message):
-    """🌟 変更：LINE Messaging APIを使ってプッシュメッセージを送信する"""
-    token = Config.LINE_CHANNEL_TOKEN
-    user_id = Config.LINE_USER_ID
-    
-    if token == 'YOUR_TOKEN' or user_id == 'YOUR_USER_ID':
-        print("LINEトークンまたはユーザーIDが設定されていないため、通知をスキップします。")
+    if Config.LINE_CHANNEL_TOKEN in ['YOUR_TOKEN', 'TEST_TOKEN']:
+        print("📱 【LINE通知シミュレーション（環境変数が未設定です）】\n" + message)
         return
-        
-    url = 'https://api.line.me/v2/bot/message/push'
+
+    url = "https://api.line.me/v2/bot/message/push"
     headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {token}'
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {Config.LINE_CHANNEL_TOKEN}"
     }
     data = {
-        "to": user_id,
-        "messages": [
-            {
-                "type": "text",
-                "text": message
-            }
-        ]
+        "to": Config.LINE_USER_ID,
+        "messages": [{"type": "text", "text": message}]
     }
-    
-    # APIへ送信
-    res = requests.post(url, headers=headers, json=data)
-    if res.status_code != 200:
-        print(f"❌ LINE送信エラー: [{res.status_code}] {res.text}")
+    try:
+        res = requests.post(url, headers=headers, json=data)
+        if res.status_code != 200:
+            print(f"❌ LINE通知エラー: {res.text}")
+    except Exception as e:
+        print(f"❌ LINE通信エラー: {e}")
 
 # ==========================================
-# フェーズ2：AI用特徴量エンジニアリング (架け橋ロジック)
+# フェーズ2：AI用特徴量エンジニアリング
 # ==========================================
 def generate_features_for_inference(df_today):
     records = []
     for idx, row in df_today.iterrows():
         race_id = f"{row['date']}_{row['place_name']}_{row['race_num']}"
+        
         line_str = str(row['line_prediction'])
         lines = []
         if pd.notna(line_str) and line_str != '-' and line_str != '':
-            # 月次コードと完全一致する「神特徴量」パース処理
             line_str = line_str.replace('←', '')
             line_str = line_str.replace('｜', '-').replace('|', '-')
             line_str = line_str.replace('/', '-').replace(' ', '-').replace('　', '-')
@@ -352,7 +349,6 @@ def generate_features_for_inference(df_today):
             if line_str:
                 for line_group in line_str.split('-'):
                     if line_group:
-                        # '123' のような文字列を ['1', '2', '3'] のリストに変換
                         lines.append(list(line_group))
         
         total_lines = len(lines)
@@ -385,12 +381,17 @@ def generate_features_for_inference(df_today):
                     is_solo = 1 if line_length == 1 else 0
                     leader_car = l[0]
                     break
+            
             leader_score = players.get(leader_car, {}).get('score', 0)
             leader_b_count = players.get(leader_car, {}).get('b_count', 0)
             is_same_area = 1 if p_info['area'] == players.get(leader_car, {}).get('area', "") and car_num != leader_car else 0
             
+            try: p_code = int(row.get('place_code', 99))
+            except: p_code = 99
+            
             records.append({
-                'race_id': race_id, 'date': row['date'], 'place_name': row['place_name'], 'race_num': row['race_num'],
+                'race_id': race_id, 'date': row['date'], 'place_name': row['place_name'], 
+                'race_num': int(row['race_num']), 'place_code': p_code,
                 'car_number': int(car_num), 'score': p_info['score'], 'b_count': p_info['b_count'],
                 'score_diff_from_max': max_score - p_info['score'], 'position_in_line': position_in_line,
                 'line_length': line_length, 'is_solo': is_solo, 'leader_score': leader_score,
@@ -403,8 +404,10 @@ def generate_features_for_inference(df_today):
 # ==========================================
 # フェーズ3：推論とLINEスナイプ指令ロジック
 # ==========================================
-def run_ai_sniper(df_features):
-    print("\n=== Step 2: AIスナイプ推論 ===")
+def run_ai_sniper(df_features, today_str):
+    print(f"\n=== Step 2: AIスナイプ推論 ({today_str}) ===")
+    
+    df_features = df_features.sort_values(by=['place_code', 'race_num'])
     
     threshold_file = get_latest_file('keirin_thresholds_*.pkl')
     win_model_file = get_latest_file('keirin_win_model_*.pkl')
@@ -418,24 +421,21 @@ def run_ai_sniper(df_features):
     model_win = joblib.load(win_model_file)
     model_odds = joblib.load(odds_model_file)
     
-    # 閾値の適用（各レースの評価）
-    race_stats = df_features.groupby('race_id')['score'].std().reset_index(name='score_std')
-    b_stats = df_features.groupby('race_id')['b_count'].sum().reset_index(name='b_sum')
+    race_stats = df_features.groupby('race_id', sort=False)['score'].std().reset_index(name='score_std')
+    b_stats = df_features.groupby('race_id', sort=False)['b_count'].sum().reset_index(name='b_sum')
     
     df_features['score_gap_type'] = pd.cut(df_features['race_id'].map(race_stats.set_index('race_id')['score_std']), bins=thresholds['score_bins'], labels=['拮抗(小)', '普通(中)', '鉄板(大)'])
     df_features['b_sum_type'] = pd.cut(df_features['race_id'].map(b_stats.set_index('race_id')['b_sum']), bins=thresholds['b_bins'], labels=['先行不在(少)', '標準(中)', 'モガキ合い(多)'])
 
-    # 🌟 ここから追加：AIの「判定理由」を全レース分出力する詳細ログ機能
-    print("\n=== 🔍 本日の全レース『黄金の乱戦』判定レポート ===")
+    print(f"\n=== 🔍 {today_str} 全レース『黄金の乱戦』判定レポート ===")
     golden_count = 0
-    for race_id, group in df_features.groupby('race_id'):
+    for race_id, group in df_features.groupby('race_id', sort=False):
         score_gap = group['score_gap_type'].iloc[0]
         b_sum = group['b_sum_type'].iloc[0]
         total_lines = group['total_lines'].iloc[0]
         
         is_golden = (score_gap == '拮抗(小)') and (b_sum == 'モガキ合い(多)') and (total_lines >= 4)
         
-        # 見やすくフォーマットして出力
         if is_golden:
             print(f"✅ 【合格】 {race_id}: (実力差:{score_gap}, B本数:{b_sum}, ライン:{total_lines}本)")
             golden_count += 1
@@ -450,15 +450,9 @@ def run_ai_sniper(df_features):
     print(f"📊 本日の判定結果: 全 {df_features['race_id'].nunique()} レース中、条件クリアは {golden_count} レース")
     print("==================================================\n")
 
-    # 条件に合致したレース（黄金の乱戦）のみを抽出
     golden_df = df_features[(df_features['score_gap_type'] == '拮抗(小)') & (df_features['b_sum_type'] == 'モガキ合い(多)') & (df_features['total_lines'] >= 4)].copy()
 
-    # ＝＝＝ これ以降のコード（if golden_df.empty: など）は変更なし ＝＝＝
-    
-    # ＝＝＝ 判定ロジックの後 ＝＝＝
     if golden_df.empty:
-        # 🌟 修正：日付（today_str）を定義する1行を追加！
-        today_str = datetime.now().strftime('%Y-%m-%d')
         send_line_notify(f"\n ***{today_str}***\n本日は『黄金の乱戦』を満たすレースが一つもありませんでした。")
         print("本日は条件合致レースなし。")
         return
@@ -468,15 +462,13 @@ def run_ai_sniper(df_features):
     probs = model_win.predict_proba(golden_df[features_win])
     golden_df['prob_1st'], golden_df['prob_2nd'], golden_df['prob_3rd'] = probs[:, 0], probs[:, 1], probs[:, 2]
     
-# === 差し替えここから ===
     message_lines = [f"📅 {today_str} 大穴スナイプ指令\n"]
     race_count = 0
     circle_nums = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"]
     
-    for race_id, group in golden_df.groupby('race_id'):
+    for race_id, group in golden_df.groupby('race_id', sort=False):
         if len(group) != 7: continue 
         
-        # 確率・オッズ・トップ10抽出の計算 (変更なし)
         p1, p2, p3 = dict(zip(group['car_number'], group['prob_1st'])), dict(zip(group['car_number'], group['prob_2nd'])), dict(zip(group['car_number'], group['prob_3rd']))
         s_dict, b_dict = dict(zip(group['car_number'], group['score'])), dict(zip(group['car_number'], group['b_count']))
         kd_dict = dict(zip(group['car_number'], (group['score']**5) / (group['score']**5).sum()))
@@ -499,7 +491,6 @@ def run_ai_sniper(df_features):
         top_10 = all_bets[:10]
         manshaken_probs = model_odds.predict_proba([b['x_odds'] for b in top_10])[:, 1]
         
-        # 🌟 フォーマット変更：見出しとカラムヘッダー
         message_lines.append(f"🏁 【{group['place_name'].iloc[0]} {group['race_num'].iloc[0]}R】")
         message_lines.append("買い目｜勝率｜オッズ100％期待度（🔥🟡:買｜💧:見送）")
         
@@ -509,58 +500,35 @@ def run_ai_sniper(df_features):
             elif exp_rate >= 30.0: mark = "🟡" 
             else: mark = "💧" 
             
-            # 🌟 丸数字を使ってコンパクトにまとめる
             rank_mark = circle_nums[i] if i < 10 else f"{i+1}."
             message_lines.append(f"{rank_mark}{b['combo']}｜{b['prob']*100:.1f}%｜{mark}{exp_rate:.1f}%")
             
         message_lines.append("-------------------------")
         race_count += 1
         
-        # 🌟 3レースごとに分割送信する「バッチ処理」
         if race_count % 3 == 0:
             send_line_notify("\n".join(message_lines))
-            message_lines = [f"📅 {today_str} 大穴スナイプ指令 (続き)\n"] # バッファをリセット
-            time.sleep(1) # API制限回避のウェイト
-            
-    # 🌟 ループ終了後、送信しきれていない残り（1〜2レース分）があれば送信
-    if len(message_lines) > 1: # タイトル行以外に中身があれば
+            message_lines = [f"📅 {today_str} 大穴スナイプ指令 (続き)\n"]
+        
+    if len(message_lines) > 1:
         send_line_notify("\n".join(message_lines))
 
-    print(">> ✅ AIスナイプ指令をLINEに送信完了！")
-    # === 差し替えここまで ===
+    print(">> ✅ AIスナイプ指令の生成完了！")
+
 # ==========================================
-# 🚀 実行メインブロック
+# 🚀 実行メインブロック（本番：毎朝4時バッチ用）
 # ==========================================
 def main():
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 日次自動バッチ処理開始")
+    # 毎日朝4時の実行を想定。昨日をstart_dt（マスター追記用）、今日をend_dt（スナイプ用）に設定
+    today_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    start_dt = today_dt - timedelta(days=1)
+    end_dt = today_dt
+    
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 日次自動バッチ処理開始 (本番環境)")
 
     os.makedirs(Config.DRIVE_DIR, exist_ok=True)
-    
-    # 🌟 変更：ファイル名を「keirin_master.csv」に完全固定！
     full_path_master = os.path.join(Config.DRIVE_DIR, 'keirin_master.csv')
     full_path_tomorrow = os.path.join(Config.DRIVE_DIR, Config.TOMORROW_FILE)
-    
-    start_dt = None
-    # 🌟 変更：ファイルが存在するかどうかで分岐
-    if os.path.exists(full_path_master):
-        try:
-            df_temp = pd.read_csv(full_path_master, usecols=['date'], low_memory=False)
-            max_date = pd.to_datetime(df_temp['date'], errors='coerce').max()
-            if pd.notna(max_date):
-                start_dt = max_date + timedelta(days=1)
-                print(f"📊 マスターCSV最新日付: {max_date.strftime('%Y-%m-%d')} ({os.path.basename(full_path_master)})")
-        except Exception as e:
-            print(f"⚠️ マスター読込エラー: {e}")
-            
-    if start_dt is None:
-        start_dt = datetime.now() - timedelta(days=1)
-        print(f"⚠️ 最新日付が取得不可または新規作成のため、{start_dt.strftime('%Y-%m-%d')}から開始します。")
-
-    # 🌟 削除：末尾にあった「日付付きの変なファイル名」を作る処理は、
-    # 完全に不要（常に keirin_master.csv に書き込むため）になったので削除しました！
-
-    today_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    end_dt = today_dt
 
     if start_dt <= end_dt:
         days_total = (end_dt - start_dt).days + 1
@@ -569,57 +537,92 @@ def main():
         
         first_cols = ['date', 'place_name', 'race_num', 'race_type_detail', 'race_title_full', 'bank_length', 'distance', 'start_time', 'payout_yen', 'payout_pop', 'line_prediction']
         
-        print(f"\n=== 🚀 Step 1: データ自動収集＆仕分け ({start_dt.strftime('%Y-%m-%d')} ~ {end_dt.strftime('%Y-%m-%d')}) ===")
-        for target_date in tqdm(date_list, desc="Scraping Progress"):
+        print(f"\n=== 🚀 Step 1: データ自動収集＆仕分け ===")
+        for target_date in date_list:
+            target_date_str = target_date.strftime('%Y-%m-%d')
+            print(f"\n{'='*55}")
+            print(f"📅 【 {target_date_str} 】の処理を開始します")
+            print(f"{'='*55}")
+            
             urls = scraper.fetch_race_urls_daily(target_date)
-            if not urls: continue
+            if not urls: 
+                print(f"❌ {target_date_str} のレースURLが取得できませんでした。")
+                continue
+            
+            print(f"🔍 取得したレースURL数: {len(urls)} 件")
                 
             daily_data = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=Config.MAX_WORKERS) as executor:
-                futures = [executor.submit(scraper.parse_one_race, u, target_date.strftime('%Y-%m-%d')) for u in urls]
+                futures = [executor.submit(scraper.parse_one_race, u, target_date_str) for u in urls]
                 for future in concurrent.futures.as_completed(futures):
                     res = future.result()
                     if res: daily_data.append(res)
             
-            if not daily_data: continue
+            if not daily_data: 
+                continue
+            
             df_day = pd.DataFrame(daily_data)
             final_cols = [c for c in first_cols if c in df_day.columns] + [c for c in df_day.columns if c not in first_cols]
             df_day = df_day[final_cols]
 
+            # ----------------------------------------------------
+            # 昨日のデータはマスター(keirin_master.csv)に追記、
+            # 今日のデータは推論用(today_races.csv)に上書き保存
+            # ----------------------------------------------------
             if target_date == today_dt:
                 df_day.to_csv(full_path_tomorrow, mode='w', header=True, index=False, encoding='utf-8-sig')
-                print(f"📝 {target_date.strftime('%Y-%m-%d')} の出走表をテスト用紙に保存しました。")
+                print(f"📝 {target_date_str} の出走表をテスト用紙(today_races.csv)に保存しました。")
             else:
                 file_exists = os.path.exists(full_path_master)
                 if not file_exists:
                     df_day.to_csv(full_path_master, mode='w', header=True, index=False, encoding='utf-8-sig')
-                    print(f"🌟 新規マスターファイルを作成し、{target_date.strftime('%Y-%m-%d')} の結果を保存しました。")
+                    print(f"🌟 新規マスターファイルを作成し、保存しました。")
                 else:
-                    df_day.to_csv(full_path_master, mode='a', header=False, index=False, encoding='utf-8-sig')
-                    print(f"💾 {target_date.strftime('%Y-%m-%d')} の結果をマスターに追記しました。")
+                    try:
+                        master_cols = pd.read_csv(full_path_master, nrows=0, low_memory=False).columns.tolist()
+                        for col in master_cols:
+                            if col not in df_day.columns:
+                                df_day[col] = np.nan
+                        df_day_aligned = df_day[master_cols]
+                        df_day_aligned.to_csv(full_path_master, mode='a', header=False, index=False, encoding='utf-8-sig')
+                        print(f"💾 {target_date_str} の結果（着順・配当入り）をマスターデータに安全に追記しました。")
+                    except Exception as e:
+                        print(f"❌ マスター追記時にエラー発生: {e}")
+            
             time.sleep(2)
             
-    # ==========================================
-    # 🌟 フェーズ2 & 3 の実行 (修正フィルター適用済)
-    # ==========================================
-    if os.path.exists(full_path_tomorrow):
-        df_today = pd.read_csv(full_path_tomorrow)
-        
-        today_str = datetime.now().strftime('%Y-%m-%d')
-        df_today = df_today[df_today['date'] == today_str]
-        
-        if not df_today.empty:
-            df_features = generate_features_for_inference(df_today)
-            if not df_features.empty:
-                run_ai_sniper(df_features)
-            else:
-                print(f"[{today_str}] 推論可能な選手データが抽出できなかったためスキップします。")
-        else:
-            print(f"[{today_str}] 本日の新しい出走表データが存在しないため、AI推論をスキップします。")
-    
+            # ----------------------------------------------------
+            # 今日のデータ（出走表）に対してのみAI推論を実行する
+            # ----------------------------------------------------
+            if target_date == today_dt:
+                df_today = df_day.copy()
+                
+                # 鉄壁フィルター1: 8番車が存在するレースを物理的に排除
+                if 'c8_existence' in df_today.columns:
+                    df_today = df_today[df_today['c8_existence'] != 1]
+                
+                # 鉄壁フィルター2: car_countが7以下のレースのみ残す
+                if 'car_count' in df_today.columns:
+                    df_today['car_count'] = pd.to_numeric(df_today['car_count'], errors='coerce')
+                    df_today = df_today[df_today['car_count'] <= 7]
+
+                if not df_today.empty:
+                    df_features = generate_features_for_inference(df_today)
+                    
+                    # 鉄壁フィルター3: 最終確認（抽出された特徴量が正確に7人分あるか）
+                    if not df_features.empty:
+                        valid_race_ids = df_features.groupby('race_id', sort=False).size()
+                        valid_race_ids = valid_race_ids[valid_race_ids == 7].index
+                        df_features = df_features[df_features['race_id'].isin(valid_race_ids)]
+                    
+                    if not df_features.empty:
+                        run_ai_sniper(df_features, target_date_str)
+                    else:
+                        print(f"[{target_date_str}] 推論可能な7車立ての選手データが抽出できなかったためスキップします。")
+                else:
+                    print(f"[{target_date_str}] 7車立ての新しい出走表データが存在しないため、AI推論をスキップします。")
+
     print("\n=== ✅ 日次バッチ処理 全工程完了 ===")
 
 if __name__ == "__main__":
     main()
-
-
