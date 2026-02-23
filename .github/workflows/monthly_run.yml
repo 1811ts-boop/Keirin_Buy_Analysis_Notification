@@ -1,0 +1,43 @@
+name: Keirin Monthly Training Bot
+
+on:
+  schedule:
+    # 毎月1日の日本時間 午前9:00 に実行（UTCの 0:00）
+    - cron: '0 0 1 * *'
+  workflow_dispatch: # 手動実行ボタン
+
+jobs:
+  run-monthly-batch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy tqdm joblib lightgbm google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+      - name: Download Data from Google Drive
+        env:
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          python download_from_drive.py
+
+      - name: Run monthly script
+        run: |
+          python 月次コード.py  # ⚠️ ここをご自身の月次コードのファイル名に書き換えてください！
+
+      - name: Sync to Google Drive
+        env:
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          python sync_to_drive.py
