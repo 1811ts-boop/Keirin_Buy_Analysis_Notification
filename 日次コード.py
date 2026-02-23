@@ -78,19 +78,44 @@ class KDreamsAnalysisScraper:
 
     def fetch_race_urls_daily(self, date_obj):
         date_str = date_obj.strftime('%Y/%m/%d')
-        target_date_id = date_obj.strftime('%Y%m%d')
         url = f"{self.base_url}/kaisai/{date_str}/"
+        
+        # 【第1段階】 開催一覧ページから、本日の「出走表一覧」ページのURLを取得
         soup = None
         for _ in range(3):
             soup = self.get_soup(url)
             if soup: break
             time.sleep(3) 
         if not soup: return None
-        unique_urls = set()
-        for link in soup.find_all('a', href=re.compile(r'/racedetail/')):
-            href = link.get('href').split('?')[0]
-            if target_date_id in href: unique_urls.add(href)
-        return list(unique_urls)
+        
+        racecard_urls = set()
+        # "active" クラスを持つタブ（本日開催分）の中にある出走表リンクを抽出
+        for li in soup.find_all('li'):
+            if 'active' in li.get('class', []):
+                for link in li.find_all('a', href=re.compile(r'/racecard/\d+')):
+                    href = link.get('href').split('?')[0]
+                    if not href.startswith("http"):
+                        href = self.base_url + href
+                    racecard_urls.add(href)
+
+        # 【第2段階】 各開催場の出走表一覧ページに潜入し、1R〜12RのURLを根こそぎ抽出
+        all_race_urls = set()
+        for rc_url in racecard_urls:
+            # URLから大会ID（14桁）を抽出し、過去日のレースが混入するのを完全に防ぐ
+            match = re.search(r'/racecard/(\d+)/?', rc_url)
+            if not match: continue
+            base_id = match.group(1)
+            
+            rc_soup = self.get_soup(rc_url)
+            if rc_soup:
+                # ページ内の全racedetailリンクを抽出（重複はsetで自動排除）
+                for link in rc_soup.find_all('a', href=re.compile(f'/racedetail/{base_id}')):
+                    href = link.get('href').split('?')[0]
+                    if not href.startswith("http"):
+                        href = self.base_url + href
+                    all_race_urls.add(href)
+                        
+        return list(all_race_urls)
 
     def _extract_race_info(self, soup, url, date_str):
         meta = {'date': date_str, 'url': url}
