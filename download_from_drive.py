@@ -37,8 +37,13 @@ def download_from_drive():
     for item in items:
         file_id = item['id']
         file_name = item['name']
-        # CSVとpklファイルのみダウンロード
+        
+        # CSVとpklファイルのみダウンロード対象とする
         if file_name.endswith('.csv') or file_name.endswith('.pkl'):
+            # 🌟 追加：バックアップファイルは無駄なのでダウンロードしない！
+            if 'backup' in file_name.lower():
+                continue
+                
             print(f"⬇️ ダウンロード中: {file_name}")
             request = service.files().get_media(fileId=file_id)
             file_path = os.path.join(target_dir, file_name)
