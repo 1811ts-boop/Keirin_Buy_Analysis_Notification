@@ -316,12 +316,19 @@ def generate_features_for_inference(df_today):
         race_id = f"{row['date']}_{row['place_name']}_{row['race_num']}"
         line_str = str(row['line_prediction'])
         lines = []
-        if line_str and line_str != "-":
-            line_str = line_str.replace("←", "").strip()
-            parts = [p.strip() for p in line_str.split("|")]
-            for p in parts:
-                cars = [c for c in p.split() if c.isdigit()]
-                if cars: lines.append(cars)
+        if pd.notna(line_str) and line_str != '-' and line_str != '':
+            # 月次コードと完全一致する「神特徴量」パース処理
+            line_str = line_str.replace('←', '')
+            line_str = line_str.replace('｜', '-').replace('|', '-')
+            line_str = line_str.replace('/', '-').replace(' ', '-').replace('　', '-')
+            line_str = re.sub(r'[^0-9\-]', '', line_str)
+            line_str = re.sub(r'\-+', '-', line_str).strip('-')
+            
+            if line_str:
+                for line_group in line_str.split('-'):
+                    if line_group:
+                        # '123' のような文字列を ['1', '2', '3'] のリストに変換
+                        lines.append(list(line_group))
         
         total_lines = len(lines)
                 
