@@ -372,14 +372,13 @@ def generate_features_for_inference(df_today):
 # フェーズ3：推論とLINEスナイプ指令ロジック
 # ==========================================
 def run_ai_sniper(df_features):
-    today_str = datetime.now().strftime('%Y-%m-%d')
-    print("\n=== 🎯 Step 2: AIスナイプ推論 ===")
+    print("\n=== Step 2: AIスナイプ推論 ===")
     
     threshold_file = get_latest_file('keirin_thresholds_*.pkl')
     win_model_file = get_latest_file('keirin_win_model_*.pkl')
     odds_model_file = get_latest_file('keirin_odds_model_*.pkl')
     
-    if not all([threshold_file, win_model_file, odds_model_file]):
+    if not (threshold_file and win_model_file and odds_model_file):
         print("❌ 必要なAIモデルファイルが見つかりません。")
         return
         
@@ -387,16 +386,42 @@ def run_ai_sniper(df_features):
     model_win = joblib.load(win_model_file)
     model_odds = joblib.load(odds_model_file)
     
+    # 閾値の適用（各レースの評価）
     race_stats = df_features.groupby('race_id')['score'].std().reset_index(name='score_std')
-    df_features['score_gap_type'] = pd.cut(df_features['race_id'].map(race_stats.set_index('race_id')['score_std']), bins=thresholds['score_bins'], labels=['拮抗(小)', '普通(中)', '鉄板(大)'])
     b_stats = df_features.groupby('race_id')['b_count'].sum().reset_index(name='b_sum')
-    df_features['b_sum_type'] = pd.cut(df_features['race_id'].map(b_stats.set_index('race_id')['b_sum']), bins=thresholds['b_bins'], labels=['先行不在(少)', '標準(中)', 'モガキ合い(多)'])
     
-    golden_df = df_features[
-        (df_features['score_gap_type'] == '拮抗(小)') & 
-        (df_features['b_sum_type'] == 'モガキ合い(多)') & 
-        (df_features['total_lines'] >= 4)
-    ].copy()
+    df_features['score_gap_type'] = pd.cut(df_features['race_id'].map(race_stats.set_index('race_id')['score_std']), bins=thresholds['score_bins'], labels=['拮抗(小)', '普通(中)', '鉄板(大)'])
+    df_features['b_sum_type'] = pd.cut(df_features['race_id'].map(b_stats.set_index('race_id')['b_sum']), bins=thresholds['b_bins'], labels=['先行不在(少)', '標準(中)', 'モガキ合い(多)'])
+
+    # 🌟 ここから追加：AIの「判定理由」を全レース分出力する詳細ログ機能
+    print("\n=== 🔍 本日の全レース『黄金の乱戦』判定レポート ===")
+    golden_count = 0
+    for race_id, group in df_features.groupby('race_id'):
+        score_gap = group['score_gap_type'].iloc[0]
+        b_sum = group['b_sum_type'].iloc[0]
+        total_lines = group['total_lines'].iloc[0]
+        
+        is_golden = (score_gap == '拮抗(小)') and (b_sum == 'モガキ合い(多)') and (total_lines >= 4)
+        
+        # 見やすくフォーマットして出力
+        if is_golden:
+            print(f"✅ 【合格】 {race_id}: (実力差:{score_gap}, B本数:{b_sum}, ライン:{total_lines}本)")
+            golden_count += 1
+        else:
+            reasons = []
+            if score_gap != '拮抗(小)': reasons.append(f"実力差が{score_gap}")
+            if b_sum != 'モガキ合い(多)': reasons.append(f"B本数が{b_sum}")
+            if total_lines < 4: reasons.append(f"ライン数が{total_lines}本")
+            print(f"❌ 【除外】 {race_id}: 理由 -> {', '.join(reasons)}")
+            
+    print(f"--------------------------------------------------")
+    print(f"📊 本日の判定結果: 全 {df_features['race_id'].nunique()} レース中、条件クリアは {golden_count} レース")
+    print("==================================================\n")
+
+    # 条件に合致したレース（黄金の乱戦）のみを抽出
+    golden_df = df_features[(df_features['score_gap_type'] == '拮抗(小)') & (df_features['b_sum_type'] == 'モガキ合い(多)') & (df_features['total_lines'] >= 4)].copy()
+
+    # ＝＝＝ これ以降のコード（if golden_df.empty: など）は変更なし ＝＝＝
     
     if golden_df.empty:
         send_line_notify(f"\n📅 {today_str}\n本日は『黄金の乱戦』を満たすレースが一つもありませんでした。")
