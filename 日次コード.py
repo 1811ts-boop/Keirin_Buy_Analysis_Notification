@@ -375,7 +375,7 @@ def run_ai_sniper(df_features):
     today_str = datetime.now().strftime('%Y-%m-%d')
     print("\n=== 🎯 Step 2: AIスナイプ推論 ===")
     
-    threshold_file = get_latest_file('keirin_threshold_*.pkl')
+    threshold_file = get_latest_file('keirin_thresholds_*.pkl')
     win_model_file = get_latest_file('keirin_win_model_*.pkl')
     odds_model_file = get_latest_file('keirin_odds_model_*.pkl')
     
