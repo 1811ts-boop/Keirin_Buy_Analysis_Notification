@@ -423,8 +423,12 @@ def run_ai_sniper(df_features):
 
     # ＝＝＝ これ以降のコード（if golden_df.empty: など）は変更なし ＝＝＝
     
+    # ＝＝＝ 判定ロジックの後 ＝＝＝
     if golden_df.empty:
-        send_line_notify(f"\n📅 {today_str}\n本日は『黄金の乱戦』を満たすレースが一つもありませんでした。")
+        # 🌟 修正：日付（today_str）を定義する1行を追加！
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        send_line_notify(f"\n ***{today_str}***\n本日は『黄金の乱戦』を満たすレースが一つもありませんでした。")
+        print("本日は条件合致レースなし。")
         return
 
     features_win = ['score', 'b_count', 'score_diff_from_max', 'position_in_line', 'line_length', 'is_solo', 'leader_score', 'leader_b_count', 'is_same_area_as_leader', 'chaos_idx', 'bank_length', 'leg']
