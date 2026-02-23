@@ -1,0 +1,46 @@
+name: Keirin Daily Sniper Bot
+
+on:
+  schedule:
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-daily-batch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 pandas numpy tqdm joblib lightgbm google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+      # 🌟 NEW: 処理の前にGoogleドライブから最新データをダウンロード
+      - name: Download Data from Google Drive
+        env:
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          python download_from_drive.py
+
+      - name: Run daily script
+        env:
+          LINE_NOTIFY_TOKEN: ${{ secrets.LINE_NOTIFY_TOKEN }}
+        run: |
+          python 日次コード.py
+
+      # 🌟 処理が終わったら、Googleドライブへ同期（アップロード）
+      - name: Sync to Google Drive
+        env:
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          python sync_to_drive.py
