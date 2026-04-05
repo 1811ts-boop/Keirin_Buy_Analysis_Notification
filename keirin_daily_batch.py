@@ -151,15 +151,23 @@ def get_ensemble_weather(place_name, target_time_str):
     target_hour = get_target_hour_index(target_time_str)
     cache_key_log = f"LOG_{place_name}_{target_hour}"
     should_log = cache_key_log not in WEATHER_CACHE
-    if should_log: WEATHER_CACHE[cache_key_log] = True 
+    
+    if should_log:
+        logger.info(f"--- 🌤️ {place_name} ({target_time_str}) の気象データ取得 ---")
+        WEATHER_CACHE[cache_key_log] = True 
 
     jma_ws, jma_wc, om_ws = fetch_weather_jma_and_om(place_name, target_time_str)
+    
     if jma_ws is not None and om_ws is not None:
         diff = abs(jma_ws - om_ws)
-        if diff > 3.0:
-            if should_log: logger.warning(f"🚨 {place_name}: 予報乖離エラー(3m超)。レースをスキップします。")
-            return None, None, False
+        if should_log:
+            logger.info(f"✅ [メインAPI] 気象庁(JMA)局地モデル ＆ Open-Meteo標準モデル の取得に成功。")
+            logger.info(f"📊 比較: JMA={jma_ws}m, OM={om_ws}m (差分: {diff:.1f}m)")
+            if diff > 3.0:
+                logger.warning(f"🚨 予報乖離エラー: ズレが3mを超えています。レースをスキップします。")
+        if diff > 3.0: return None, None, False
         return jma_ws, jma_wc, True
+        
     return 0.0, 1, True
 
 # =============================================================================
@@ -518,8 +526,15 @@ def preprocess_and_feature_engineering(df_master, df_today_raw):
     df_all['is_weather_stable'] = 1 
     
     for idx, row in df_all[mask_today].iterrows():
-        ws, wc, is_stable = get_ensemble_weather(row['place_name'], row.get('start_time', '15:00'))
-        if not is_stable: df_all.at[idx, 'is_weather_stable'] = 0 
+        place = row['place_name']
+        rnum = int(row['race_num'])
+        if place not in JUDGMENT_REPORT: JUDGMENT_REPORT[place] = {}
+        
+        ws, wc, is_stable = get_ensemble_weather(place, row.get('start_time', '15:00'))
+        if not is_stable: 
+            df_all.at[idx, 'is_weather_stable'] = 0 
+            # 💡追加：気象によるスキップを記録
+            JUDGMENT_REPORT[place][rnum] = {'cat': row.get('race_type_detail', '不明'), 'reason': "❌ 見送 (理由: ⏭️ 気象不安定により除外)"}
         else:
             if ws is not None: df_all.at[idx, 'wind_speed'] = ws
             if wc is not None: df_all.at[idx, 'weather_code'] = wc
@@ -617,8 +632,21 @@ def predict_and_snipe(df_today, today_str):
     hit_count = 0
 
     for idx, row in df_today.iterrows():
+        place = row['place_name']
+        rnum = int(row['race_num'])
+        r_type = row['race_type_detail']
+        if place not in JUDGMENT_REPORT: JUDGMENT_REPORT[place] = {}
+
         if row.get('is_weather_stable', 1) == 0: continue
-        r_type, is_9car = row['race_type_detail'], int(row.get('c1_is_9car_race', 0))
+        
+        is_9car = int(row.get('c1_is_9car_race', 0))
+        cars = [i for i in range(1, 10) if row.get(f'c{i}_existence', 0) == 1]
+        if len(cars) < 2: 
+            JUDGMENT_REPORT[place][rnum] = {'cat': r_type, 'reason': "❌ 見送 (理由: ⚠️ 出走車数不足)"}
+            continue
+        
+        # 💡追加：このレースで買い目が出たか判定するリスト
+        race_hit_reasons = []
         cars = [i for i in range(1, 10) if row.get(f'c{i}_existence', 0) == 1]
         if len(cars) < 2: continue
         
@@ -645,6 +673,8 @@ def predict_and_snipe(df_today, today_str):
                             hit_count += 1
                             # ↓これを追加
                             sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds_2t, 1), round(ev_2t, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
+                            # 💡追加↓
+                            race_hit_reasons.append(f"2単 {c1}-{c2}")
                     
                     if c1 < c2:
                         odds_df_2f = odds_df_2t.copy()
@@ -656,7 +686,9 @@ def predict_and_snipe(df_today, today_str):
                                 message_lines.extend([f"👧【P3 ガールズ】{row['place_name']}{row['race_num']}R", f" 🛡️ 2車複 {c1}={c2} | 予測オッズ {pred_odds_2f:.1f}倍 | EV {ev_2f:.2f}", f" 💰 上限目安: {cond['Limit']}円\n"])
                                 hit_count += 1
                                 # ↓これを追加
-                                sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2複", f"{c1}={c2}", f"{prob_2f*100:.1f}%", round(pred_odds_2f, 1), round(ev_2f, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
+                                sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds_2t, 1), round(ev_2t, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
+                            # 💡追加↓
+                            race_hit_reasons.append(f"2単 {c1}-{c2}")
                 except Exception as e: logger.debug(f"V15推論エラー: {e}")
 
         # 男子戦 (P1, P2-S)
@@ -677,9 +709,29 @@ def predict_and_snipe(df_today, today_str):
                             message_lines.extend([f"🚴‍♂️【{r_type} 男子】{row['place_name']}{row['race_num']}R", f" 🎯 2車単 {c1}-{c2} | 予測オッズ {pred_odds:.1f}倍 | EV {ev:.2f}", f" 💰 上限目安: {cond['Limit']}円\n"])
                             hit_count += 1
                             # ↓これを追加
-                            sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V13", row['place_name'], row['race_num'], r_type, "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds, 1), round(ev, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
+                            sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds_2t, 1), round(ev_2t, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
+                            # 💡追加↓
+                            race_hit_reasons.append(f"2単 {c1}-{c2}")
                 except Exception as e: logger.debug(f"V13推論エラー: {e}")
+        # 💡追加：このレースの最終判定を記録
+        if race_hit_reasons:
+            JUDGMENT_REPORT[place][rnum] = {'cat': r_type, 'reason': f"✅ 買い (理由: ✅ 条件合致 [{', '.join(race_hit_reasons)}])"}
+        else:
+            JUDGMENT_REPORT[place][rnum] = {'cat': r_type, 'reason': "❌ 見送 (理由: ❌ 期待値・オッズ条件未達)"}
 
+    # =========================================================================
+    # 📊 判定プロセスの詳細出力
+    # =========================================================================
+    logger.info("📊 === 競輪二刀流AI 1レースごとの判定レポート ===")
+    for place in sorted(JUDGMENT_REPORT.keys()):
+        races = JUDGMENT_REPORT[place]
+        logger.info(f"🚴‍♂️ {place} - {len(races)}レース分析")
+        for rn in sorted(races.keys()):
+            r = races[rn]
+            logger.info(f"   {rn:>2}R: [{r['cat']}] -> {r['reason']}")
+    logger.info("======================================")
+
+    # 既存のLINE送信とスプレッドシート書き込みへ続く...
     if hit_count == 0: message_lines.append("本日は聖杯ポートフォリオに合致する「黄金の買い目」はありませんでした。資金を温存してください ☕")
     
     # ↓これを追加（シートにデータがあれば書き込む）
