@@ -838,9 +838,8 @@ def update_spreadsheet_results(yesterday_str, df_yesterday):
 def main():
 
     today_dt = TODAY_OBJ.replace(hour=0, minute=0, second=0, microsecond=0)
-    start_dt = today_dt - timedelta(days=1)
     
-    logger.info(f"[{TODAY_OBJ.strftime('%Y-%m-%d %H:%M:%S')}] 日次自動バッチ処理開始 (Colab最強スクレイパー搭載版)")
+    logger.info(f"[{TODAY_OBJ.strftime('%Y-%m-%d %H:%M:%S')}] 日次自動バッチ処理開始 (自動リカバリー搭載版)")
     os.makedirs(Config.DRIVE_DIR, exist_ok=True)
     full_path_master = os.path.join(Config.DRIVE_DIR, Config.MASTER_FILE)
 
@@ -861,7 +860,31 @@ def main():
     df_master = pd.read_csv(full_path_master, low_memory=False) if os.path.exists(full_path_master) else pd.DataFrame()
     df_today_raw = pd.DataFrame()
 
-    for target_date in [start_dt, today_dt]:
+    # 💡 追加：マスターデータから「最新日」を割り出し、取得対象の日付リストを自動生成する
+    today_naive = today_dt.replace(tzinfo=None)
+    start_dt_naive = today_naive - timedelta(days=1) # デフォルトは昨日
+
+    if not df_master.empty and 'date' in df_master.columns:
+        try:
+            # マスターデータの最新日を取得し、その「翌日」を開始日に設定
+            latest_date = pd.to_datetime(df_master['date']).max()
+            if latest_date.tzinfo is not None: latest_date = latest_date.tz_localize(None)
+            start_dt_naive = latest_date + timedelta(days=1)
+        except Exception as e:
+            logger.warning(f"⚠️ 最新日の取得に失敗しました。デフォルト(昨日)から開始します: {e}")
+
+    # 万が一、未来の日付が最新になっていた場合は今日に補正
+    if start_dt_naive > today_naive: start_dt_naive = today_naive
+
+    # 開始日から今日までの日付リストを作成
+    target_dates = []
+    current_dt = start_dt_naive
+    while current_dt <= today_naive:
+        target_dates.append(current_dt.replace(tzinfo=JST))
+        current_dt += timedelta(days=1)
+
+    # 💡 修正：ループ対象を固定リストから、動的生成した target_dates に変更
+    for target_date in target_dates:
         target_date_str = target_date.strftime('%Y-%m-%d')
         logger.info(f"\n=== 📅 【 {target_date_str} 】のデータ収集を開始 ===")
         
