@@ -563,6 +563,12 @@ def preprocess_and_feature_engineering(df_master, df_today_raw):
         pivot_df.columns = [f"c{col[1]}_{'days_since_last' if col[0] == 'days_since_last_race' else 'series_prev_rank'}" for col in pivot_df.columns]
         df_all = df_all.merge(pivot_df, on='race_id', how='left')
 
+        # 💡 ここから下の4行を追加してください：7車立てのみの日でもエラーにならないよう強制補完
+        for i in range(1, 10):
+            if f'c{i}_days_since_last' not in df_all.columns: df_all[f'c{i}_days_since_last'] = 30.0
+            if f'c{i}_series_prev_rank' not in df_all.columns: df_all[f'c{i}_series_prev_rank'] = 99.0
+        # 💡 追加ここまで
+
     df_all['bank_length_num'] = pd.to_numeric(df_all['bank_length'], errors='coerce').fillna(400.0)
     df_all['distance_num'] = pd.to_numeric(df_all['distance'], errors='coerce').fillna(2025.0)
     df_all['wind_speed'] = pd.to_numeric(df_all.get('wind_speed', 0), errors='coerce').fillna(0.0)
