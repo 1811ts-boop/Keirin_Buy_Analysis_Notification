@@ -28,7 +28,7 @@ jobs:
       - name: Run Keirin Daily Batch
         env:
           # GitHubのリポジトリ設定（Settings > Secrets and variables > Actions）で登録が必要
-          GCP_SA_CREDENTIALS: ${{ secrets.GCP_SA_CREDENTIALS }}
+          GCP_SA_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
           LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
