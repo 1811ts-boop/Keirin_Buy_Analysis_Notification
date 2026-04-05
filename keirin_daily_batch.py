@@ -358,7 +358,8 @@ class KDreamsAnalysisScraper:
             s_match = re.search(r'風速.*?([0-9\.]+)\s*m', weather_text)
             if s_match: wind_speed_str = s_match.group(1)
 
-        payout_res = {'payout_3tan_yen': 0, 'payout_3tan_pop': 0, 'payout_2tan_yen': 0, 'payout_2fuku_yen': 0, 'weather': weather_str, 'wind_speed': wind_speed_str}
+        # ★追加：win_combo_2tan と win_combo_2fuku を初期値として追加
+        payout_res = {'payout_3tan_yen': 0, 'payout_3tan_pop': 0, 'payout_2tan_yen': 0, 'payout_2fuku_yen': 0, 'win_combo_2tan': '-', 'win_combo_2fuku': '-', 'weather': weather_str, 'wind_speed': wind_speed_str}
         try:
             refund_table = soup.find('table', class_='refund_table')
             if refund_table:
@@ -377,9 +378,14 @@ class KDreamsAnalysisScraper:
                         if m_yen: yen = int(m_yen.group(1))
 
                     if re.match(r'^\d+=\d+=\d+$', tk): seen_3fuku = True
-                    if re.match(r'^\d+=\d+$', tk) and not seen_3fuku: payout_res['payout_2fuku_yen'] = yen
-                    elif re.match(r'^\d+-\d+$', tk): payout_res['payout_2tan_yen'] = yen
-                    elif re.match(r'^\d+-\d+-\d+$', tk): payout_res['payout_3tan_yen'], payout_res['payout_3tan_pop'] = yen, pop
+                    if re.match(r'^\d+=\d+$', tk) and not seen_3fuku: 
+                        payout_res['payout_2fuku_yen'] = yen
+                        payout_res['win_combo_2fuku'] = tk  # ★追加：正解の出目を記憶
+                    elif re.match(r'^\d+-\d+$', tk): 
+                        payout_res['payout_2tan_yen'] = yen
+                        payout_res['win_combo_2tan'] = tk   # ★追加：正解の出目を記憶
+                    elif re.match(r'^\d+-\d+-\d+$', tk): 
+                        payout_res['payout_3tan_yen'], payout_res['payout_3tan_pop'] = yen, pop
         except: pass
 
         ranks = {}
@@ -708,6 +714,68 @@ def upload_to_drive(file_path, file_name):
         logger.error(f"❌ Google Driveアップロードエラー: {e}")
 # ←★ここまで追加
 
+def update_spreadsheet_results(yesterday_str, df_yesterday):
+    """スプレッドシートの昨日の予測結果を読み込み、実際のレース結果と照合して自動更新する"""
+    if not GCP_SA_CREDENTIALS or not SPREADSHEET_ID: return
+    try:
+        creds_dict = json.loads(GCP_SA_CREDENTIALS)
+        SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+        creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        service = build('sheets', 'v4', credentials=creds)
+
+        # シートのデータを全件取得 (A列〜Q列)
+        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range='Sheet1!A:Q').execute()
+        rows = result.get('values', [])
+        if not rows: return
+
+        update_data = []
+        for i, row in enumerate(rows):
+            # A列(日付)が昨日の日付と一致する行を探す
+            if len(row) > 0 and row[0] == yesterday_str:
+                # インデックスエラー防止のため空文字でパディング
+                while len(row) < 17: row.append("")
+
+                place = row[3]
+                race_num = int(row[4])
+                bet_type = row[6]  # '2単' or '2複'
+                combo = row[7]     # 予測した買い目 (例: '1-2')
+                recommended_amt = row[13] # 推奨投資額
+
+                # 取得した昨日のスクレイピング結果から該当レースを検索
+                match = df_yesterday[(df_yesterday['place_name'] == place) & (df_yesterday['race_num'].astype(int) == race_num)]
+                
+                if not match.empty:
+                    race_data = match.iloc[0]
+                    is_hit = 0
+                    confirmed_odds = 0.0
+
+                    # 賭式ごとに正解の出目と照合
+                    if bet_type == '2単':
+                        if race_data.get('win_combo_2tan', '-') == combo:
+                            is_hit = 1
+                            confirmed_odds = race_data.get('payout_2tan_yen', 0) / 100.0
+                    elif bet_type == '2複':
+                        if race_data.get('win_combo_2fuku', '-') == combo:
+                            is_hit = 1
+                            confirmed_odds = race_data.get('payout_2fuku_yen', 0) / 100.0
+
+                    # 更新用データの作成 (O列:実際購入額, P列:確定オッズ, Q列:的中判定)
+                    # ※完全自動化のため、実際購入額(O列)には自動的に「推奨投資額(N列)」をコピー入力します
+                    row_idx = i + 1
+                    update_data.append({
+                        'range': f'Sheet1!O{row_idx}:Q{row_idx}',
+                        'values': [[recommended_amt, confirmed_odds, is_hit]]
+                    })
+
+        # 一括でスプレッドシートを更新
+        if update_data:
+            body = {'valueInputOption': 'USER_ENTERED', 'data': update_data}
+            service.spreadsheets().values().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=body).execute()
+            logger.info(f"🔄 スプレッドシートの昨日の予測結果（{len(update_data)}件）の成績判定を自動入力しました！")
+
+    except Exception as e:
+        logger.error(f"❌ スプレッドシート自動判定エラー: {e}")
+
 # =============================================================================
 # 🚀 実行メインブロック (Colabカラム仕様に完全同期)
 # =============================================================================
@@ -778,11 +846,15 @@ def main():
                 df_day_aligned = df_day[df_master.columns]
                 df_master = pd.concat([df_master, df_day_aligned], ignore_index=True)
                 
-                # ★追加：万が一1日に複数回実行されてもデータが重複しないようにする（バッチ処理の鉄則）
+                # ★追加：万が一1日に複数回実行されてもデータが重複しないようにする
                 df_master.drop_duplicates(subset=['race_id'], keep='last', inplace=True)
                 
                 df_master.to_csv(full_path_master, mode='w', header=True, index=False, encoding='utf-8-sig')
             logger.info(f"💾 前日({target_date_str})の結果をマスターデータに追記しました。")
+            
+            # ★追加：ここで「昨日のAI予測結果」の自動答え合わせ＆シート書き込みを実行！
+            update_spreadsheet_results(target_date.strftime('%Y/%m/%d'), df_day)
+            
         time.sleep(2)
 
     # 本日の推論
