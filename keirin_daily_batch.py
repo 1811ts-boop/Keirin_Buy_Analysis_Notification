@@ -634,7 +634,7 @@ def predict_and_snipe(df_today, today_str):
                             message_lines.extend([f"👧【P3 ガールズ】{row['place_name']}{row['race_num']}R", f" 🎯 2車単 {c1}-{c2} | 予測オッズ {pred_odds_2t:.1f}倍 | EV {ev_2t:.2f}", f" 💰 上限目安: {cond['Limit']}円\n"])
                             hit_count += 1
                             # ↓これを追加
-                            sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", f"{row.get('wind_speed',0)}m", "-", "", 100, "", "", cond['Limit'], "", ""])
+                            sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds_2t, 1), round(ev_2t, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
                     
                     if c1 < c2:
                         odds_df_2f = odds_df_2t.copy()
@@ -646,7 +646,7 @@ def predict_and_snipe(df_today, today_str):
                                 message_lines.extend([f"👧【P3 ガールズ】{row['place_name']}{row['race_num']}R", f" 🛡️ 2車複 {c1}={c2} | 予測オッズ {pred_odds_2f:.1f}倍 | EV {ev_2f:.2f}", f" 💰 上限目安: {cond['Limit']}円\n"])
                                 hit_count += 1
                                 # ↓これを追加
-                                sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2複", f"{c1}={c2}", f"{prob_2f*100:.1f}%", f"{row.get('wind_speed',0)}m", "-", "", 100, "", "", cond['Limit'], "", ""])
+                                sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2複", f"{c1}={c2}", f"{prob_2f*100:.1f}%", round(pred_odds_2f, 1), round(ev_2f, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
                 except Exception as e: logger.debug(f"V15推論エラー: {e}")
 
         # 男子戦 (P1, P2-S)
@@ -667,7 +667,7 @@ def predict_and_snipe(df_today, today_str):
                             message_lines.extend([f"🚴‍♂️【{r_type} 男子】{row['place_name']}{row['race_num']}R", f" 🎯 2車単 {c1}-{c2} | 予測オッズ {pred_odds:.1f}倍 | EV {ev:.2f}", f" 💰 上限目安: {cond['Limit']}円\n"])
                             hit_count += 1
                             # ↓これを追加
-                            sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V13", row['place_name'], row['race_num'], r_type, "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", f"{row.get('wind_speed',0)}m", "-", "", 100, "", "", cond['Limit'], "", ""])
+                            sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V13", row['place_name'], row['race_num'], r_type, "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds, 1), round(ev, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
                 except Exception as e: logger.debug(f"V13推論エラー: {e}")
 
     if hit_count == 0: message_lines.append("本日は聖杯ポートフォリオに合致する「黄金の買い目」はありませんでした。資金を温存してください ☕")
