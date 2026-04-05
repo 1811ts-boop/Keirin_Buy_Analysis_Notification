@@ -16,7 +16,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload  # ←★追加：Driveアップロード用モジュール
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload  # ←★追加
+import io  # ←★追加
 import logging
 import warnings
 
@@ -769,6 +770,37 @@ def upload_to_drive(file_path, file_name):
     except Exception as e:
         logger.error(f"❌ Google Driveアップロードエラー: {e}")
 # ←★ここまで追加
+def download_from_drive(file_path, file_name):
+    """Google Driveから最新のマスターデータをダウンロードする"""
+    if not GCP_SA_CREDENTIALS: return False
+    try:
+        creds_dict = json.loads(GCP_SA_CREDENTIALS)
+        SCOPES = ['https://www.googleapis.com/auth/drive']
+        creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        service = build('drive', 'v3', credentials=creds)
+
+        # ファイルを検索
+        query = f"name = '{file_name}' and trashed = false"
+        results = service.files().list(q=query, fields="files(id, name)").execute()
+        files = results.get('files', [])
+
+        if not files:
+            logger.warning(f"⚠️ Drive上に {file_name} が見つかりません。新規作成として進行します。")
+            return False
+
+        # ダウンロード実行
+        file_id = files[0]['id']
+        request = service.files().get_media(fileId=file_id)
+        with io.FileIO(file_path, 'wb') as fh:
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+        logger.info(f"📥 Google Driveから最新のマスターデータ({file_name})をダウンロードしました！")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Driveダウンロードエラー: {e}")
+        return False
 
 def update_spreadsheet_results(yesterday_str, df_yesterday):
     """スプレッドシートの昨日の予測結果を読み込み、実際のレース結果と照合して自動更新する"""
@@ -842,6 +874,9 @@ def main():
     logger.info(f"[{TODAY_OBJ.strftime('%Y-%m-%d %H:%M:%S')}] 日次自動バッチ処理開始 (自動リカバリー搭載版)")
     os.makedirs(Config.DRIVE_DIR, exist_ok=True)
     full_path_master = os.path.join(Config.DRIVE_DIR, Config.MASTER_FILE)
+
+    # 💡追加：何よりも先に、Driveから本物のマスターデータを仮想環境へ引っ張ってくる
+    download_from_drive(full_path_master, Config.MASTER_FILE)
 
     # 万が一の破損に備え、起動時にバックアップを作成
     if os.path.exists(full_path_master):
