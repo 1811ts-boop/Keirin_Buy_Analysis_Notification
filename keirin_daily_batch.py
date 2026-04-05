@@ -50,7 +50,7 @@ SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 class Config:
     DRIVE_DIR = './KeirinData' 
     MODELS_DIR = './models'
-    MASTER_FILE = 'keirin_master.csv'
+    MASTER_FILE = 'kdreams_analysis_2020-2026_master_v2.csv'  # ← 本来のマスターデータ名に修正
     MAX_WORKERS = 3 
     SLEEP_TIME = 1.0
 
