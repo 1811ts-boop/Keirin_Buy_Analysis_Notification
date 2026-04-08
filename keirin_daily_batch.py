@@ -661,7 +661,7 @@ def predict_and_snipe(df_today, today_str):
         
         return X[meta['features']]
 
-    # 🚨 修正：【オッズモデル用】 category 型への変換を削除
+    # 🚨 修正：【オッズモデル用】V15特有の3カラムのみ category 型に戻す
     def prepare_odds_features(odds_dict, features_list, is_v15=False):
         df_odds = pd.DataFrame([odds_dict])[features_list]
         
@@ -669,12 +669,12 @@ def predict_and_snipe(df_today, today_str):
         for col in features_list:
             df_odds[col] = pd.to_numeric(df_odds[col], errors='coerce').fillna(0.0).astype(float)
         
-        # V15オッズモデルのみ、特定の3カラムを float から int にするだけ（categoryにはしない）
+        # V15オッズモデルのみ、特定の3カラムを int にした上で category 型に明示的変換
         if is_v15:
             cat_cols = ['weather_code', 'c1_series_prev_rank', 'c2_series_prev_rank']
             for col in cat_cols:
                 if col in features_list:
-                    df_odds[col] = df_odds[col].astype(int)
+                    df_odds[col] = df_odds[col].astype(int).astype('category')
                     
         return df_odds[features_list]
         
