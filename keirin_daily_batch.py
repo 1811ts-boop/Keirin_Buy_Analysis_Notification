@@ -638,14 +638,15 @@ def predict_and_snipe(df_today, today_str):
     sheet_data = []
     hit_count = 0
     max_ev_today = 0.0 # 🚨追加：デバッグ用EVチェッカー
-
-    # 🚨 追加：Pandas Objectバグを回避する強制型変換ヘルパー
+    
+    # 🚨 追加：Pandasの文字列変換バグを回避し、強制的に数値/カテゴリに戻す関数
     def cast_features(X_raw, meta):
         X = X_raw.copy()
         cat_cols = meta.get('cat_features', [])
         for col in X.columns:
             if col in cat_cols:
-                X[col] = X[col].astype('category')
+                # 欠損値は -1 にしてカテゴリ化
+                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(-1).astype(int).astype('category')
             else:
                 X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0.0)
         return X
@@ -680,10 +681,10 @@ def predict_and_snipe(df_today, today_str):
                     
                     odds_df_2t = pd.DataFrame([{'Ticket_True_Prob': prob_2t, 'is_2F': 0, 'c1_c_score': row.get(f'c{c1}_c_score',0), 'c2_c_score': row.get(f'c{c2}_c_score',0), 'score_diff_1_2': row.get(f'c{c1}_c_score',0)-row.get(f'c{c2}_c_score',0), 'c1_avg_3furlong': row.get(f'c{c1}_avg_3furlong',0), 'c2_avg_3furlong': row.get(f'c{c2}_avg_3furlong',0), 'c1_kimari_nige': row.get(f'c{c1}_kimari_nige',0), 'c2_kimari_sashi': row.get(f'c{c2}_kimari_sashi',0), 'c1_is_leader': row.get(f'c{c1}_is_leader',0), 'c2_is_leader': row.get(f'c{c2}_is_leader',0), 'is_same_line': 0, 'c1_bank_length': row.get('bank_length_num',400), 'straight_length': row.get('straight_length',50.0), 'weather_code': row.get('weather_code',0), 'wind_speed': row.get('wind_speed',0.0), 'c1_days_since_last': row.get(f'c{c1}_days_since_last',30.0), 'c2_days_since_last': row.get(f'c{c2}_days_since_last',30.0), 'c1_series_prev_rank': row.get(f'c{c1}_series_prev_rank',99.0), 'c2_series_prev_rank': row.get(f'c{c2}_series_prev_rank',99.0)}])[odds_features_v15]
                     
-                    # 🚨 修正：オッズ推論用データも型を厳格に指定
+                    # 🚨 修正：オッズ推論用データも型を厳格に指定（文字列エラー防止）
                     for c in odds_features_v15:
                         if c in ['weather_code', 'c1_series_prev_rank', 'c2_series_prev_rank']:
-                            odds_df_2t[c] = odds_df_2t[c].astype('category')
+                            odds_df_2t[c] = pd.to_numeric(odds_df_2t[c], errors='coerce').fillna(-1).astype(int).astype('category')
                         else:
                             odds_df_2t[c] = pd.to_numeric(odds_df_2t[c], errors='coerce').fillna(0.0)
                     
@@ -711,7 +712,8 @@ def predict_and_snipe(df_today, today_str):
                                 hit_count += 1
                                 sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2複", f"{c1}={c2}", f"{prob_2f*100:.1f}%", round(pred_odds_2f, 1), round(ev_2f, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
                                 race_hit_reasons.append(f"2複 {c1}={c2} (EV:{ev_2f:.2f})")
-                except Exception as e: logger.debug(f"V15推論エラー: {e}")
+                except Exception as e:
+                    logger.error(f"❌ 推論エラー: {e}\n{traceback.format_exc()}")
 
         # 男子戦 (P1, P2-S)
         elif r_type in ['P2-S', 'P1']:
@@ -726,8 +728,9 @@ def predict_and_snipe(df_today, today_str):
                     
                     odds_df_v13 = pd.DataFrame([{'Ticket_True_Prob': prob_2t, 'is_2F': 0, 'c1_c_score': row.get(f'c{c1}_c_score',0), 'c2_c_score': row.get(f'c{c2}_c_score',0), 'score_diff_1_2': row.get(f'c{c1}_c_score',0)-row.get(f'c{c2}_c_score',0), 'c1_avg_3furlong': row.get(f'c{c1}_avg_3furlong',0), 'c2_avg_3furlong': row.get(f'c{c2}_avg_3furlong',0), 'c1_kimari_nige': row.get(f'c{c1}_kimari_nige',0), 'c2_kimari_sashi': row.get(f'c{c2}_kimari_sashi',0), 'c1_is_leader': row.get(f'c{c1}_is_leader',0), 'c2_is_leader': row.get(f'c{c2}_is_leader',0), 'is_same_line': is_same_line, 'c1_bank_length': row.get('bank_length_num',400)}])[odds_features_v13]
                     
-                    # 🚨 修正: V13オッズ推論用データも型を厳格に指定
-                    for c in odds_features_v13: odds_df_v13[c] = pd.to_numeric(odds_df_v13[c], errors='coerce').fillna(0.0)
+                    # 🚨 修正：V13オッズ推論用データも型を厳格に指定
+                    for c in odds_features_v13: 
+                        odds_df_v13[c] = pd.to_numeric(odds_df_v13[c], errors='coerce').fillna(0.0)
                     
                     odds_model = odds_v13_9 if is_9car == 1 else odds_v13_7
                     pred_odds = np.expm1(odds_model.predict(odds_df_v13)[0])
