@@ -19,8 +19,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload  # ←★追加
 import io  # ←★追加
 import logging
+import traceback  # ← ★これを追加
 import warnings
-import traceback
 import shutil
 warnings.filterwarnings("ignore")
 
@@ -639,11 +639,17 @@ def predict_and_snipe(df_today, today_str):
     hit_count = 0
     max_ev_today = 0.0 
 
-    # 🚨 追加：【勝率モデル用】強制数値キャスト関数
+    # 🚨 追加：【勝率モデル用】強制数値・カテゴリキャスト関数
     def prepare_win_features(row, meta):
         X = row[meta['features']].to_frame().T
+        cat_cols = meta.get('cat_features', [])
         for col in X.columns:
-            X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0.0)
+            if col in cat_cols:
+                # カテゴリ変数は整数にしてから category 型に変換（LightGBMのクラッシュを防ぐ）
+                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(-1).astype(int).astype('category')
+            else:
+                # 数値変数は float 型
+                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0.0)
         return X
 
     # 🚨 追加：【オッズモデル用】専用キャスト関数
