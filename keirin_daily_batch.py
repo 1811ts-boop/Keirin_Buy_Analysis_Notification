@@ -646,36 +646,35 @@ def predict_and_snipe(df_today, today_str):
     max_ev_today = 0.0 
 
     # 🚨 修正：【勝率モデル用】完全同期キャスト関数
+    # 🚨 修正：【勝率モデル用】 category 型への変換を削除し、int型に揃える
     def prepare_win_features(row, meta):
         X = row[meta['features']].to_frame().T
         cat_cols = meta.get('cat_features', [])
         
-        # X.columnsではなく、メタデータの正しいカラム順でループを回す
         for col in meta['features']:
             if col in cat_cols:
-                # カテゴリ変数は必ず int にしてから category 型へ (LightGBM仕様)
-                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(-1).astype(int).astype('category')
+                # 学習時（cat.codes）と同じく、単なる int 型として扱う
+                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(-1).astype(int)
             else:
                 # 数値変数は必ず float 型へ明示的にキャスト
                 X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0.0).astype(float)
         
-        # 学習時と「全く同じカラム順序」であることを強制的に保証する
         return X[meta['features']]
 
-    # 🚨 修正：【オッズモデル用】専用キャスト関数
+    # 🚨 修正：【オッズモデル用】 category 型への変換を削除
     def prepare_odds_features(odds_dict, features_list, is_v15=False):
         df_odds = pd.DataFrame([odds_dict])[features_list]
         
-        # まず全カラムを強制的に float 型にする
+        # 全カラムを一旦 float 型にする
         for col in features_list:
             df_odds[col] = pd.to_numeric(df_odds[col], errors='coerce').fillna(0.0).astype(float)
         
-        # V15オッズモデルのみ、特定の3カラムを int → category 型に強制
+        # V15オッズモデルのみ、特定の3カラムを float から int にするだけ（categoryにはしない）
         if is_v15:
             cat_cols = ['weather_code', 'c1_series_prev_rank', 'c2_series_prev_rank']
             for col in cat_cols:
                 if col in features_list:
-                    df_odds[col] = df_odds[col].astype(int).astype('category')
+                    df_odds[col] = df_odds[col].astype(int)
                     
         return df_odds[features_list]
         
