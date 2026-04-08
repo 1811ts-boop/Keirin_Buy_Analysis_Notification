@@ -644,6 +644,7 @@ def predict_and_snipe(df_today, today_str):
     sheet_data = []
     hit_count = 0
     max_ev_today = 0.0 
+    snipe_list = []  # 🎯 的中情報を一時保存するリスト 
 
     # 🚨 修正：【勝率モデル用】完全同期キャスト関数
     # 🚨 修正：【勝率モデル用】 category 型への変換を削除し、int型に揃える
@@ -724,8 +725,11 @@ def predict_and_snipe(df_today, today_str):
                     
                     for cond in CONDITIONS_V15:
                         if cond['Bet_Type'] == '2T' and cond['Odds_Min'] <= pred_odds_2t <= cond['Odds_Max'] and ev_2t >= cond['EV_Th']:
-                            message_lines.extend([f"👧【P3 ガールズ】{row['place_name']}{row['race_num']}R", f" 🎯 2車単 {c1}-{c2} | 予測オッズ {pred_odds_2t:.1f}倍 | EV {ev_2t:.2f}", f" 💰 上限目安: {cond['Limit']}円\n"])
                             hit_count += 1
+                            snipe_list.append({
+                                'place': row['place_name'], 'rnum': rnum,
+                                'msg': f"🏁 {row['place_name']} {row['race_num']}R (発走 {row.get('start_time','--:--')})\n 🎯 2車単 {c1}-{c2} | 予測 {pred_odds_2t:.1f}倍 | EV {ev_2t:.2f}\n 💰 上限目安: {cond['Limit']}円\n"
+                            })
                             sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds_2t, 1), round(ev_2t, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
                             race_hit_reasons.append(f"2単 {c1}-{c2}")
                     
@@ -740,8 +744,11 @@ def predict_and_snipe(df_today, today_str):
                         
                         for cond in CONDITIONS_V15:
                             if cond['Bet_Type'] == '2F' and cond['Odds_Min'] <= pred_odds_2f <= cond['Odds_Max'] and ev_2f >= cond['EV_Th']:
-                                message_lines.extend([f"👧【P3 ガールズ】{row['place_name']}{row['race_num']}R", f" 🛡️ 2車複 {c1}={c2} | 予測オッズ {pred_odds_2f:.1f}倍 | EV {ev_2f:.2f}", f" 💰 上限目安: {cond['Limit']}円\n"])
-                                hit_count += 1
+                                    hit_count += 1
+                                    snipe_list.append({
+                                        'place': row['place_name'], 'rnum': rnum,
+                                        'msg': f"🏁 {row['place_name']} {row['race_num']}R (発走 {row.get('start_time','--:--')})\n 🛡️ 2車複 {c1}={c2} | 予測 {pred_odds_2f:.1f}倍 | EV {ev_2f:.2f}\n 💰 上限目安: {cond['Limit']}円\n"
+                                    })
                                 sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2複", f"{c1}={c2}", f"{prob_2f*100:.1f}%", round(pred_odds_2f, 1), round(ev_2f, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
                                 race_hit_reasons.append(f"2複 {c1}={c2}")
                 except Exception as e:
@@ -773,8 +780,11 @@ def predict_and_snipe(df_today, today_str):
                     
                     for cond in CONDITIONS_V13:
                         if cond['Segment'] == r_type and cond['Odds_Min'] <= pred_odds <= cond['Odds_Max'] and ev >= cond['EV_Th']:
-                            message_lines.extend([f"🚴‍♂️【{r_type} 男子】{row['place_name']}{row['race_num']}R", f" 🎯 2車単 {c1}-{c2} | 予測オッズ {pred_odds:.1f}倍 | EV {ev:.2f}", f" 💰 上限目安: {cond['Limit']}円\n"])
                             hit_count += 1
+                            snipe_list.append({
+                                'place': row['place_name'], 'rnum': rnum,
+                                'msg': f"🏁 {row['place_name']} {row['race_num']}R (発走 {row.get('start_time','--:--')})\n 🎯 2車単 {c1}-{c2} | 予測 {pred_odds:.1f}倍 | EV {ev:.2f}\n 💰 上限目安: {cond['Limit']}円\n"
+                            })
                             sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V13", row['place_name'], row['race_num'], r_type, "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds, 1), round(ev, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
                             race_hit_reasons.append(f"2単 {c1}-{c2} (EV:{ev:.2f})")
                 except Exception as e:
@@ -785,8 +795,8 @@ def predict_and_snipe(df_today, today_str):
         else:
             JUDGMENT_REPORT[place][rnum] = {'cat': r_type, 'reason': "❌ 見送 (理由: ❌ 期待値・オッズ条件未達)"}
 
-    # =========================================================================
-    logger.info("📊 === 競輪二刀流AI 1レースごとの判定レポート ===")
+    # === 📊 的中判定レポートのログ出力 ===
+    logger.info("📊 === 競輪二刀流AI レース別判定結果 ===")
     for place in sorted(JUDGMENT_REPORT.keys()):
         races = JUDGMENT_REPORT[place]
         logger.info(f"🚴‍♂️ {place} - {len(races)}レース分析")
@@ -794,12 +804,18 @@ def predict_and_snipe(df_today, today_str):
             r = races[rn]
             logger.info(f"   {rn:>2}R: [{r['cat']}] -> {r['reason']}")
     logger.info("======================================")
-    
-    logger.info(f"💡 【デバッグ情報】本日の全パターンのうち、最大EVは {max_ev_today:.2f} でした。")
+    logger.info(f"💡 【デバッグ】本日の最大EV: {max_ev_today:.2f}")
 
-    if hit_count == 0: 
-        message_lines.append("本日は聖杯ポートフォリオに合致する「黄金の買い目」はありませんでした。資金を温存してください ☕")
+    # === 🎯 最終通知メッセージの組み立て（場所・レース番号順にソート） ===
+    if hit_count > 0:
+        # 場所名、次にレース番号の順で並べ替え
+        snipe_list.sort(key=lambda x: (x['place'], x['rnum']))
+        for item in snipe_list:
+            message_lines.append(item['msg'])
+    else:
+        message_lines.append("本日は条件に合致する「黄金の買い目」はありませんでした。資金を温存してください ☕")
     
+    # スプレッドシート追記とLINE送信
     if sheet_data: 
         append_to_spreadsheet(sheet_data)
 
@@ -912,14 +928,17 @@ def update_spreadsheet_results(yesterday_str, df_yesterday):
                             is_hit = 1
                             confirmed_odds = race_data.get('payout_2fuku_yen', 0) / 100.0
 
-                    # 更新用データの作成 (O列:実際購入額, P列:確定オッズ, Q列:的中判定)
-                    # ※完全自動化のため、実際購入額(O列)には自動的に「推奨投資額(N列)」をコピー入力します
+                    # 更新用データの作成 (O列:実際購入額, P列:確定オッズ, Q列:的中判定, R列:払戻金, S列:収支)
+                    actual_amt = float(recommended_amt) if recommended_amt else 0
+                    payout_yen = actual_amt * confirmed_odds if is_hit == 1 else 0
+                    net_profit = payout_yen - actual_amt
+                    
                     row_idx = i + 1
                     update_data.append({
-                        'range': f'Sheet1!O{row_idx}:Q{row_idx}',
-                        'values': [[recommended_amt, confirmed_odds, is_hit]]
+                        'range': f'Sheet1!O{row_idx}:S{row_idx}',
+                        'values': [[actual_amt, confirmed_odds, is_hit, payout_yen, net_profit]]
                     })
-
+                    
         # 一括でスプレッドシートを更新
         if update_data:
             body = {'valueInputOption': 'USER_ENTERED', 'data': update_data}
