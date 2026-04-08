@@ -726,10 +726,12 @@ def predict_and_snipe(df_today, today_str):
                     for cond in CONDITIONS_V15:
                         if cond['Bet_Type'] == '2T' and cond['Odds_Min'] <= pred_odds_2t <= cond['Odds_Max'] and ev_2t >= cond['EV_Th']:
                             hit_count += 1
+                            # 🎯 通知用リストに追加
                             snipe_list.append({
                                 'place': row['place_name'], 'rnum': rnum,
                                 'msg': f"🏁 {row['place_name']} {row['race_num']}R (発走 {row.get('start_time','--:--')})\n 🎯 2車単 {c1}-{c2} | 予測 {pred_odds_2t:.1f}倍 | EV {ev_2t:.2f}\n 💰 上限目安: {cond['Limit']}円\n"
                             })
+                            # 📝 スプレッドシート用リストに追加
                             sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds_2t, 1), round(ev_2t, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
                             race_hit_reasons.append(f"2単 {c1}-{c2}")
                     
@@ -744,11 +746,13 @@ def predict_and_snipe(df_today, today_str):
                         
                         for cond in CONDITIONS_V15:
                             if cond['Bet_Type'] == '2F' and cond['Odds_Min'] <= pred_odds_2f <= cond['Odds_Max'] and ev_2f >= cond['EV_Th']:
-                                    hit_count += 1
-                                    snipe_list.append({
-                                        'place': row['place_name'], 'rnum': rnum,
-                                        'msg': f"🏁 {row['place_name']} {row['race_num']}R (発走 {row.get('start_time','--:--')})\n 🛡️ 2車複 {c1}={c2} | 予測 {pred_odds_2f:.1f}倍 | EV {ev_2f:.2f}\n 💰 上限目安: {cond['Limit']}円\n"
-                                    })
+                                hit_count += 1
+                                # 🎯 通知用リストに追加
+                                snipe_list.append({
+                                    'place': row['place_name'], 'rnum': rnum,
+                                    'msg': f"🏁 {row['place_name']} {row['race_num']}R (発走 {row.get('start_time','--:--')})\n 🛡️ 2車複 {c1}={c2} | 予測 {pred_odds_2f:.1f}倍 | EV {ev_2f:.2f}\n 💰 上限目安: {cond['Limit']}円\n"
+                                })
+                                # 📝 スプレッドシート用リストに追加
                                 sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2複", f"{c1}={c2}", f"{prob_2f*100:.1f}%", round(pred_odds_2f, 1), round(ev_2f, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
                                 race_hit_reasons.append(f"2複 {c1}={c2}")
                 except Exception as e:
