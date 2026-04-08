@@ -563,11 +563,17 @@ def preprocess_and_feature_engineering(df_master, df_today_raw):
         pivot_df.columns = [f"c{col[1]}_{'days_since_last' if col[0] == 'days_since_last_race' else 'series_prev_rank'}" for col in pivot_df.columns]
         df_all = df_all.merge(pivot_df, on='race_id', how='left')
 
-        # 💡 ここから下の4行を追加してください：7車立てのみの日でもエラーにならないよう強制補完
+        # 🚨修正：カラムが存在しても、欠損値(NaN)が入っている場合があるため fillna を明示的に行う
         for i in range(1, 10):
-            if f'c{i}_days_since_last' not in df_all.columns: df_all[f'c{i}_days_since_last'] = 30.0
-            if f'c{i}_series_prev_rank' not in df_all.columns: df_all[f'c{i}_series_prev_rank'] = 99.0
-        # 💡 追加ここまで
+            if f'c{i}_days_since_last' not in df_all.columns:
+                df_all[f'c{i}_days_since_last'] = 30.0
+            else:
+                df_all[f'c{i}_days_since_last'] = df_all[f'c{i}_days_since_last'].fillna(30.0)
+
+            if f'c{i}_series_prev_rank' not in df_all.columns:
+                df_all[f'c{i}_series_prev_rank'] = 99.0
+            else:
+                df_all[f'c{i}_series_prev_rank'] = df_all[f'c{i}_series_prev_rank'].fillna(99.0)
 
     df_all['bank_length_num'] = pd.to_numeric(df_all['bank_length'], errors='coerce').fillna(400.0)
     df_all['distance_num'] = pd.to_numeric(df_all['distance'], errors='coerce').fillna(2025.0)
@@ -639,33 +645,40 @@ def predict_and_snipe(df_today, today_str):
     hit_count = 0
     max_ev_today = 0.0 
 
-    # 🚨 追加：【勝率モデル用】強制数値・カテゴリキャスト関数
+    # 🚨 修正：【勝率モデル用】完全同期キャスト関数
     def prepare_win_features(row, meta):
         X = row[meta['features']].to_frame().T
         cat_cols = meta.get('cat_features', [])
-        for col in X.columns:
+        
+        # X.columnsではなく、メタデータの正しいカラム順でループを回す
+        for col in meta['features']:
             if col in cat_cols:
-                # カテゴリ変数は整数にしてから category 型に変換（LightGBMのクラッシュを防ぐ）
+                # カテゴリ変数は必ず int にしてから category 型へ (LightGBM仕様)
                 X[col] = pd.to_numeric(X[col], errors='coerce').fillna(-1).astype(int).astype('category')
             else:
-                # 数値変数は float 型
-                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0.0)
-        return X
+                # 数値変数は必ず float 型へ明示的にキャスト
+                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0.0).astype(float)
+        
+        # 学習時と「全く同じカラム順序」であることを強制的に保証する
+        return X[meta['features']]
 
-    # 🚨 追加：【オッズモデル用】専用キャスト関数
+    # 🚨 修正：【オッズモデル用】専用キャスト関数
     def prepare_odds_features(odds_dict, features_list, is_v15=False):
         df_odds = pd.DataFrame([odds_dict])[features_list]
-        for col in df_odds.columns:
-            df_odds[col] = pd.to_numeric(df_odds[col], errors='coerce').fillna(0.0)
         
-        # V15オッズモデルのみ、特定の3カラムをcategory型に戻す
+        # まず全カラムを強制的に float 型にする
+        for col in features_list:
+            df_odds[col] = pd.to_numeric(df_odds[col], errors='coerce').fillna(0.0).astype(float)
+        
+        # V15オッズモデルのみ、特定の3カラムを int → category 型に強制
         if is_v15:
             cat_cols = ['weather_code', 'c1_series_prev_rank', 'c2_series_prev_rank']
             for col in cat_cols:
-                if col in df_odds.columns:
-                    df_odds[col] = df_odds[col].astype('category')
-        return df_odds
-
+                if col in features_list:
+                    df_odds[col] = df_odds[col].astype(int).astype('category')
+                    
+        return df_odds[features_list]
+        
     for idx, row in df_today.iterrows():
         place = row['place_name']
         rnum = int(row['race_num'])
@@ -733,7 +746,8 @@ def predict_and_snipe(df_today, today_str):
                                 sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2複", f"{c1}={c2}", f"{prob_2f*100:.1f}%", round(pred_odds_2f, 1), round(ev_2f, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
                                 race_hit_reasons.append(f"2複 {c1}={c2}")
                 except Exception as e:
-                    logger.error(f"❌ V15推論エラー: {e}\n{traceback.format_exc()}")
+                    # レース場とレース番号（place, rnum）を含めてエラー箇所を特定しやすくする
+                    logger.error(f"❌ V15推論エラー ({place}{rnum}R): {e}\n{traceback.format_exc()}")
 
         # 🗡️ 【V13 男子戦 (P1, P2-S)】
         elif r_type in ['P2-S', 'P1']:
