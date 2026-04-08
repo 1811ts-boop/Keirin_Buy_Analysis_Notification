@@ -614,7 +614,7 @@ def preprocess_and_feature_engineering(df_master, df_today_raw):
     return df_all[df_all['date'] >= today_date].copy()
 
 # =============================================================================
-# 6. 推論 ＆ スナイプ (変更なし)
+# 6. 推論 ＆ スナイプ (バグフィックス・型変換強制版)
 # =============================================================================
 def predict_and_snipe(df_today, today_str):
     logger.info(f"\n=== ⚔️ 二刀流AI スナイプ推論 ({today_str}) ===")
@@ -637,6 +637,18 @@ def predict_and_snipe(df_today, today_str):
     message_lines = [f"📅 {today_str} 聖杯ポートフォリオ指令\n"]
     sheet_data = []
     hit_count = 0
+    max_ev_today = 0.0 # 🚨追加：デバッグ用EVチェッカー
+
+    # 🚨 追加：Pandas Objectバグを回避する強制型変換ヘルパー
+    def cast_features(X_raw, meta):
+        X = X_raw.copy()
+        cat_cols = meta.get('cat_features', [])
+        for col in X.columns:
+            if col in cat_cols:
+                X[col] = X[col].astype('category')
+            else:
+                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0.0)
+        return X
 
     for idx, row in df_today.iterrows():
         place = row['place_name']
@@ -652,15 +664,13 @@ def predict_and_snipe(df_today, today_str):
             JUDGMENT_REPORT[place][rnum] = {'cat': r_type, 'reason': "❌ 見送 (理由: ⚠️ 出走車数不足)"}
             continue
         
-        # 💡追加：このレースで買い目が出たか判定するリスト
         race_hit_reasons = []
-        cars = [i for i in range(1, 10) if row.get(f'c{i}_existence', 0) == 1]
-        if len(cars) < 2: continue
         
         # ガールズ (P3)
         if r_type == 'P3':
-            X_v15 = row[meta_v15['features']].to_frame().T
-            for col in meta_v15['cat_features']: X_v15[col] = X_v15[col].astype('category')
+            # 🚨 修正：ヘルパー関数を使ってAIに渡す直前に型を厳密化
+            X_v15 = cast_features(row[meta_v15['features']].to_frame().T, meta_v15)
+            
             for c1, c2 in itertools.permutations(cars, 2):
                 try:
                     p1_1st, p1_2nd = v15_1st[c1].predict(X_v15)[0], v15_2nd[c1].predict(X_v15)[0]
@@ -669,65 +679,74 @@ def predict_and_snipe(df_today, today_str):
                     prob_2f = min(1.0, (p1_1st * p2_2nd) + (p2_1st * p1_2nd))
                     
                     odds_df_2t = pd.DataFrame([{'Ticket_True_Prob': prob_2t, 'is_2F': 0, 'c1_c_score': row.get(f'c{c1}_c_score',0), 'c2_c_score': row.get(f'c{c2}_c_score',0), 'score_diff_1_2': row.get(f'c{c1}_c_score',0)-row.get(f'c{c2}_c_score',0), 'c1_avg_3furlong': row.get(f'c{c1}_avg_3furlong',0), 'c2_avg_3furlong': row.get(f'c{c2}_avg_3furlong',0), 'c1_kimari_nige': row.get(f'c{c1}_kimari_nige',0), 'c2_kimari_sashi': row.get(f'c{c2}_kimari_sashi',0), 'c1_is_leader': row.get(f'c{c1}_is_leader',0), 'c2_is_leader': row.get(f'c{c2}_is_leader',0), 'is_same_line': 0, 'c1_bank_length': row.get('bank_length_num',400), 'straight_length': row.get('straight_length',50.0), 'weather_code': row.get('weather_code',0), 'wind_speed': row.get('wind_speed',0.0), 'c1_days_since_last': row.get(f'c{c1}_days_since_last',30.0), 'c2_days_since_last': row.get(f'c{c2}_days_since_last',30.0), 'c1_series_prev_rank': row.get(f'c{c1}_series_prev_rank',99.0), 'c2_series_prev_rank': row.get(f'c{c2}_series_prev_rank',99.0)}])[odds_features_v15]
-                    odds_df_2t['weather_code'], odds_df_2t['c1_series_prev_rank'], odds_df_2t['c2_series_prev_rank'] = odds_df_2t['weather_code'].astype('category'), odds_df_2t['c1_series_prev_rank'].astype('category'), odds_df_2t['c2_series_prev_rank'].astype('category')
+                    
+                    # 🚨 修正：オッズ推論用データも型を厳格に指定
+                    for c in odds_features_v15:
+                        if c in ['weather_code', 'c1_series_prev_rank', 'c2_series_prev_rank']:
+                            odds_df_2t[c] = odds_df_2t[c].astype('category')
+                        else:
+                            odds_df_2t[c] = pd.to_numeric(odds_df_2t[c], errors='coerce').fillna(0.0)
                     
                     pred_odds_2t = np.expm1(odds_v15_g.predict(odds_df_2t)[0])
                     ev_2t = prob_2t * pred_odds_2t
+                    if ev_2t > max_ev_today: max_ev_today = ev_2t # 記録
                     
                     for cond in CONDITIONS_V15:
                         if cond['Bet_Type'] == '2T' and cond['Odds_Min'] <= pred_odds_2t <= cond['Odds_Max'] and ev_2t >= cond['EV_Th']:
                             message_lines.extend([f"👧【P3 ガールズ】{row['place_name']}{row['race_num']}R", f" 🎯 2車単 {c1}-{c2} | 予測オッズ {pred_odds_2t:.1f}倍 | EV {ev_2t:.2f}", f" 💰 上限目安: {cond['Limit']}円\n"])
                             hit_count += 1
-                            # ↓これを追加
                             sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds_2t, 1), round(ev_2t, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
-                            # 💡追加↓
-                            race_hit_reasons.append(f"2単 {c1}-{c2}")
+                            race_hit_reasons.append(f"2単 {c1}-{c2} (EV:{ev_2t:.2f})")
                     
                     if c1 < c2:
                         odds_df_2f = odds_df_2t.copy()
                         odds_df_2f['Ticket_True_Prob'], odds_df_2f['is_2F'] = prob_2f, 1
                         pred_odds_2f = np.expm1(odds_v15_g.predict(odds_df_2f)[0])
                         ev_2f = prob_2f * pred_odds_2f
+                        if ev_2f > max_ev_today: max_ev_today = ev_2f # 記録
+                        
                         for cond in CONDITIONS_V15:
                             if cond['Bet_Type'] == '2F' and cond['Odds_Min'] <= pred_odds_2f <= cond['Odds_Max'] and ev_2f >= cond['EV_Th']:
                                 message_lines.extend([f"👧【P3 ガールズ】{row['place_name']}{row['race_num']}R", f" 🛡️ 2車複 {c1}={c2} | 予測オッズ {pred_odds_2f:.1f}倍 | EV {ev_2f:.2f}", f" 💰 上限目安: {cond['Limit']}円\n"])
                                 hit_count += 1
-                                # ↓これを追加
-                                sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds_2t, 1), round(ev_2t, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
-                            # 💡追加↓
-                            race_hit_reasons.append(f"2単 {c1}-{c2}")
+                                sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2複", f"{c1}={c2}", f"{prob_2f*100:.1f}%", round(pred_odds_2f, 1), round(ev_2f, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
+                                race_hit_reasons.append(f"2複 {c1}={c2} (EV:{ev_2f:.2f})")
                 except Exception as e: logger.debug(f"V15推論エラー: {e}")
 
         # 男子戦 (P1, P2-S)
         elif r_type in ['P2-S', 'P1']:
-            X_v13 = row[meta_v13['features']].to_frame().T
+            # 🚨 修正：ヘルパー関数を使ってAIに渡す直前に型を厳密化
+            X_v13 = cast_features(row[meta_v13['features']].to_frame().T, meta_v13)
+            
             for c1, c2 in itertools.permutations(cars, 2):
                 try:
                     p1, p2 = v13_1st[c1].predict(X_v13)[0], v13_1st[c2].predict(X_v13)[0]
                     prob_2t = p1 * (p2 / (1.0 - p1)) if p1 < 1.0 else 0
                     is_same_line = 1 if row.get(f'c{c1}_line_group', 99) == row.get(f'c{c2}_line_group', 99) and row.get(f'c{c1}_line_group', 99)!=99 else 0
+                    
                     odds_df_v13 = pd.DataFrame([{'Ticket_True_Prob': prob_2t, 'is_2F': 0, 'c1_c_score': row.get(f'c{c1}_c_score',0), 'c2_c_score': row.get(f'c{c2}_c_score',0), 'score_diff_1_2': row.get(f'c{c1}_c_score',0)-row.get(f'c{c2}_c_score',0), 'c1_avg_3furlong': row.get(f'c{c1}_avg_3furlong',0), 'c2_avg_3furlong': row.get(f'c{c2}_avg_3furlong',0), 'c1_kimari_nige': row.get(f'c{c1}_kimari_nige',0), 'c2_kimari_sashi': row.get(f'c{c2}_kimari_sashi',0), 'c1_is_leader': row.get(f'c{c1}_is_leader',0), 'c2_is_leader': row.get(f'c{c2}_is_leader',0), 'is_same_line': is_same_line, 'c1_bank_length': row.get('bank_length_num',400)}])[odds_features_v13]
+                    
+                    # 🚨 修正: V13オッズ推論用データも型を厳格に指定
+                    for c in odds_features_v13: odds_df_v13[c] = pd.to_numeric(odds_df_v13[c], errors='coerce').fillna(0.0)
+                    
                     odds_model = odds_v13_9 if is_9car == 1 else odds_v13_7
                     pred_odds = np.expm1(odds_model.predict(odds_df_v13)[0])
                     ev = prob_2t * pred_odds
+                    if ev > max_ev_today: max_ev_today = ev # 記録
                     
                     for cond in CONDITIONS_V13:
                         if cond['Segment'] == r_type and cond['Odds_Min'] <= pred_odds <= cond['Odds_Max'] and ev >= cond['EV_Th']:
                             message_lines.extend([f"🚴‍♂️【{r_type} 男子】{row['place_name']}{row['race_num']}R", f" 🎯 2車単 {c1}-{c2} | 予測オッズ {pred_odds:.1f}倍 | EV {ev:.2f}", f" 💰 上限目安: {cond['Limit']}円\n"])
                             hit_count += 1
-                            # ↓これを追加
-                            sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds_2t, 1), round(ev_2t, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
-                            # 💡追加↓
-                            race_hit_reasons.append(f"2単 {c1}-{c2}")
+                            sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V13", row['place_name'], row['race_num'], r_type, "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds, 1), round(ev, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
+                            race_hit_reasons.append(f"2単 {c1}-{c2} (EV:{ev:.2f})")
                 except Exception as e: logger.debug(f"V13推論エラー: {e}")
-        # 💡追加：このレースの最終判定を記録
+                
         if race_hit_reasons:
             JUDGMENT_REPORT[place][rnum] = {'cat': r_type, 'reason': f"✅ 買い (理由: ✅ 条件合致 [{', '.join(race_hit_reasons)}])"}
         else:
             JUDGMENT_REPORT[place][rnum] = {'cat': r_type, 'reason': "❌ 見送 (理由: ❌ 期待値・オッズ条件未達)"}
 
-    # =========================================================================
-    # 📊 判定プロセスの詳細出力
     # =========================================================================
     logger.info("📊 === 競輪二刀流AI 1レースごとの判定レポート ===")
     for place in sorted(JUDGMENT_REPORT.keys()):
@@ -737,6 +756,15 @@ def predict_and_snipe(df_today, today_str):
             r = races[rn]
             logger.info(f"   {rn:>2}R: [{r['cat']}] -> {r['reason']}")
     logger.info("======================================")
+    
+    # 🚨 追加：今日のEVの最大値をコンソール出力（0.x等のままなら別の異常）
+    logger.info(f"💡 【デバッグ情報】本日の全パターンのうち、最大EVは {max_ev_today:.2f} でした。")
+
+    if hit_count == 0: message_lines.append("本日は聖杯ポートフォリオに合致する「黄金の買い目」はありませんでした。資金を温存してください ☕")
+    
+    if sheet_data: append_to_spreadsheet(sheet_data)
+    send_line_broadcast("\n".join(message_lines))
+    logger.info(f">> ✅ 全 {hit_count} 件のスナイプ指令を送信しました！")
 
     # 既存のLINE送信とスプレッドシート書き込みへ続く...
     if hit_count == 0: message_lines.append("本日は聖杯ポートフォリオに合致する「黄金の買い目」はありませんでした。資金を温存してください ☕")
