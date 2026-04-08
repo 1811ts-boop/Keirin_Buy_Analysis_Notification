@@ -797,19 +797,6 @@ def predict_and_snipe(df_today, today_str):
     
     logger.info(f"💡 【デバッグ情報】本日の全パターンのうち、最大EVは {max_ev_today:.2f} でした。")
 
-   # =========================================================================
-    logger.info("📊 === 競輪二刀流AI 1レースごとの判定レポート ===")
-    for place in sorted(JUDGMENT_REPORT.keys()):
-        races = JUDGMENT_REPORT[place]
-        logger.info(f"🚴‍♂️ {place} - {len(races)}レース分析")
-        for rn in sorted(races.keys()):
-            r = races[rn]
-            logger.info(f"   {rn:>2}R: [{r['cat']}] -> {r['reason']}")
-    logger.info("======================================")
-    
-    logger.info(f"💡 【デバッグ情報】本日の全パターンのうち、最大EVは {max_ev_today:.2f} でした。")
-
-    # --- ここから修正 ---
     if hit_count == 0: 
         message_lines.append("本日は聖杯ポートフォリオに合致する「黄金の買い目」はありませんでした。資金を温存してください ☕")
     
