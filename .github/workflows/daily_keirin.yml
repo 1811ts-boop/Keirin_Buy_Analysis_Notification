@@ -18,12 +18,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          # ★修正①: scikit-learn 1.6.1に対応するため、Colabと同じPython 3.11に変更
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests pandas numpy lightgbm joblib beautifulsoup4 google-api-python-client google-auth google-auth-oauthlib google-auth-httplib2
+          # ★修正②: scikit-learnを追加し、lightgbmと共にバージョンを完全固定
+          pip install requests pandas numpy "lightgbm==4.6.0" "scikit-learn==1.6.1" joblib beautifulsoup4 google-api-python-client google-auth google-auth-oauthlib google-auth-httplib2
 
       - name: Run Keirin Daily Batch
         env:
