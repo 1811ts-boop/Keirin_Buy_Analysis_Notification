@@ -728,8 +728,8 @@ def predict_and_snipe(df_today, today_str):
                             hit_count += 1
                             # 🎯 通知用リストに追加
                             snipe_list.append({
-                                'place': row['place_name'], 'rnum': rnum,
-                                'msg': f"🏁 {row['place_name']} {row['race_num']}R (発走 {row.get('start_time','--:--')})\n 🎯 2車単 {c1}-{c2} | 予測 {pred_odds_2t:.1f}倍 | EV {ev_2t:.2f}\n 💰 上限目安: {cond['Limit']}円\n"
+                                'place': row['place_name'], 'rnum': rnum, 'time': row.get('start_time','--:--'),
+                                'type': '2単', 'icon': '🎯', 'combo': f"{c1}-{c2}", 'suffix': '🔥'
                             })
                             # 📝 スプレッドシート用リストに追加
                             sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds_2t, 1), round(ev_2t, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
@@ -749,8 +749,8 @@ def predict_and_snipe(df_today, today_str):
                                 hit_count += 1
                                 # 🎯 通知用リストに追加
                                 snipe_list.append({
-                                    'place': row['place_name'], 'rnum': rnum,
-                                    'msg': f"🏁 {row['place_name']} {row['race_num']}R (発走 {row.get('start_time','--:--')})\n 🛡️ 2車複 {c1}={c2} | 予測 {pred_odds_2f:.1f}倍 | EV {ev_2f:.2f}\n 💰 上限目安: {cond['Limit']}円\n"
+                                    'place': row['place_name'], 'rnum': rnum, 'time': row.get('start_time','--:--'),
+                                    'type': '2複', 'icon': '🛡️', 'combo': f"{c1}={c2}", 'suffix': '💰'
                                 })
                                 # 📝 スプレッドシート用リストに追加
                                 sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V15", row['place_name'], row['race_num'], "P3", "2複", f"{c1}={c2}", f"{prob_2f*100:.1f}%", round(pred_odds_2f, 1), round(ev_2f, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
@@ -786,8 +786,8 @@ def predict_and_snipe(df_today, today_str):
                         if cond['Segment'] == r_type and cond['Odds_Min'] <= pred_odds <= cond['Odds_Max'] and ev >= cond['EV_Th']:
                             hit_count += 1
                             snipe_list.append({
-                                'place': row['place_name'], 'rnum': rnum,
-                                'msg': f"🏁 {row['place_name']} {row['race_num']}R (発走 {row.get('start_time','--:--')})\n 🎯 2車単 {c1}-{c2} | 予測 {pred_odds:.1f}倍 | EV {ev:.2f}\n 💰 上限目安: {cond['Limit']}円\n"
+                                'place': row['place_name'], 'rnum': rnum, 'time': row.get('start_time','--:--'),
+                                'type': '2単', 'icon': '🎯', 'combo': f"{c1}-{c2}", 'suffix': '🔥'
                             })
                             sheet_data.append([TODAY_OBJ.strftime('%Y/%m/%d'), row.get('start_time',''), "V13", row['place_name'], row['race_num'], r_type, "2単", f"{c1}-{c2}", f"{prob_2t*100:.1f}%", round(pred_odds, 1), round(ev, 2), row.get('weather_code',0), row.get('wind_speed',0.0), cond['Limit'], "", "", "", "", ""])
                             race_hit_reasons.append(f"2単 {c1}-{c2} (EV:{ev:.2f})")
@@ -810,14 +810,24 @@ def predict_and_snipe(df_today, today_str):
     logger.info("======================================")
     logger.info(f"💡 【デバッグ】本日の最大EV: {max_ev_today:.2f}")
 
-    # === 🎯 最終通知メッセージの組み立て（場所・レース番号順にソート） ===
+    # === 🎯 最終通知メッセージの組み立て（場所・レース番号順にソートしてグループ化） ===
+    # 最初のタイトル行の余分な改行を削除し、見栄えを調整します
+    message_lines = [f"📅 {today_str} 聖杯ポートフォリオ指令"] 
+    
     if hit_count > 0:
-        # 場所名、次にレース番号の順で並べ替え
         snipe_list.sort(key=lambda x: (x['place'], x['rnum']))
+        current_place = ""
         for item in snipe_list:
-            message_lines.append(item['msg'])
+            if item['place'] != current_place:
+                # 場所が変わるごとにヘッダーを追加
+                message_lines.append(f"\n🏁 {item['place']}")
+                current_place = item['place']
+            
+            # 各レースの買い目をコンパクトに追加
+            race_line = f" ({item['time']}){item['rnum']}R{item['icon']} {item['type']} {item['combo']} |{item['suffix']}"
+            message_lines.append(race_line)
     else:
-        message_lines.append("本日は条件に合致する「黄金の買い目」はありませんでした。資金を温存してください ☕")
+        message_lines.append("\n本日は条件に合致する「黄金の買い目」はありませんでした。資金を温存してください ☕")
     
     # スプレッドシート追記とLINE送信
     if sheet_data: 
