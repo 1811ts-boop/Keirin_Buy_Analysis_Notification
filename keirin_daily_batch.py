@@ -811,8 +811,11 @@ def predict_and_snipe(df_today, today_str):
     logger.info(f"💡 【デバッグ】本日の最大EV: {max_ev_today:.2f}")
 
     # === 🎯 最終通知メッセージの組み立て（場所・レース番号順にソートしてグループ化） ===
-    # 最初のタイトル行の余分な改行を削除し、見栄えを調整します
-    message_lines = [f"📅 {today_str} 聖杯ポートフォリオ指令"] 
+    message_lines = [
+        f"📅 {today_str} 聖杯ポートフォリオ指令\n",
+        "【凡例】🔥5倍 💰3倍 🪙1倍",
+        "【Bet上限】1,000円×倍数"
+    ]
     
     if hit_count > 0:
         snipe_list.sort(key=lambda x: (x['place'], x['rnum']))
